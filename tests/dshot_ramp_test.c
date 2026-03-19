@@ -26,18 +26,37 @@ int main() {
 
     int start_wait_time = 10000;
     uint32_t start_time = to_ms_since_boot(get_absolute_time());
+
+    motor_init_all(DSHOT_SPEED, MOTOR1_PIN, MOTOR1_PIO, MOTOR2_PIN, MOTOR2_PIO, &bot_state);
+
+
+// then start the ramp loops
+
     while (to_ms_since_boot(get_absolute_time()) <= start_time + start_wait_time){
         printf("WAITING BEFORE START \n");
     }
-    
-    motor_init_all(DSHOT_SPEED, MOTOR1_PIN, MOTOR1_PIO, MOTOR2_PIN, MOTOR2_PIO, &bot_state);
 
+    motor_debug_snapshot_t snap = motor_debug_snapshot;
+    printf("Post-init M1: %u  M2: %u  sends: %u\n",
+        (unsigned int)snap.motor1_throttle,
+        (unsigned int)snap.motor2_throttle,
+    (unsigned int)snap.send_count);
+        
+   
     sleep_ms(3000);
 
     for (int i = 1000; i >= 0; i-=10){
         motor_set_throttle_for_all(i);
         sleep_ms(100);
+
+        // take a local copy so values don't change mid-print
+        motor_debug_snapshot_t snap = motor_debug_snapshot;
+        printf("M1: %u  M2: %u  sends: %u\n",
+        (unsigned int)snap.motor1_throttle,
+        (unsigned int)snap.motor2_throttle,
+        (unsigned int)snap.send_count);
     }
+    
 
     motor_set_throttle_for_all(0);
     sleep_ms(3000);
@@ -50,6 +69,8 @@ int main() {
     motor_set_throttle_for_all(0);
 
     printf("FINISHED MOVING THROUGH ALL THROTTLES");
+
+    motor_shutdown_all();
 
     return 0;
 }

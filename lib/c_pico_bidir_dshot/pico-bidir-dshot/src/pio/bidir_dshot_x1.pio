@@ -2,8 +2,9 @@
 
 start:
 .wrap_target
-push block
+push noblock
 set pindirs, 1
+set pins, 1         ; explicitly drive high while idle
 pull block
 
 ; write DShot packet

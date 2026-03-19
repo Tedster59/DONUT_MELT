@@ -8,12 +8,20 @@ volatile uint16_t MOTOR2_throttle;
 
 static bot_state_t* _user_bot_state;
 
+// In motor_driver.c
+volatile motor_debug_snapshot_t motor_debug_snapshot;
+
 static struct repeating_timer set_throttle_timer;
 
 bool set_throttle_callback(struct repeating_timer *t){
     BidirDShotX1_sendThrottle(MOTOR1, MOTOR1_throttle);
     BidirDShotX1_sendThrottle(MOTOR2, MOTOR2_throttle);
-    led_toggle();
+
+    // lightweight snapshot — no printf, just a struct copy
+    motor_debug_snapshot.motor1_throttle = MOTOR1_throttle;
+    motor_debug_snapshot.motor2_throttle = MOTOR2_throttle;
+    motor_debug_snapshot.send_count++;
+
     return true;
 }
 
@@ -48,4 +56,8 @@ void motor_init_all(int dshot_speed, int motor1_pin, PIO motor1_pio, int motor2_
 
     // arm escs by sending 0 throttle for at least 3 seconds
     sleep_ms(3000);
+}
+
+void motor_shutdown_all(){
+    cancel_repeating_timer(&set_throttle_timer);
 }
