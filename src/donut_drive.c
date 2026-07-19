@@ -72,19 +72,29 @@ void handle_all_spin(bot_state_t* bot_state, double left_y_percent, double right
 
     // the names "more" and "less" are true in the case of moving forwards 
     // and reversed in the case of moving backwards
-    double more_motor_percent_throttle = left_y_percent + distance_to_edge * right_y_percent;
-    double less_motor_percent_throttle = left_y_percent + distance_to_edge * -right_y_percent;
+
+    // Sinusoidal control: modulate it based on where you are in the rotation:
+
+    double angle = (2 * M_PI) * ((double)time_elapsed_this_rotation_us / (double)us_per_rotation);
+    double sinVal = cos(angle);
+
+    double more_motor_percent_throttle = left_y_percent + distance_to_edge * right_y_percent * sinVal;
+    double less_motor_percent_throttle = left_y_percent + distance_to_edge * -right_y_percent * sinVal;
 
     // printf("more_motor_percent_throttle=%lf | ", more_motor_percent_throttle);
     // printf("less_motor_percent_throttle=%lf \n", less_motor_percent_throttle);
 
-    if (time_elapsed_this_rotation_us >= motor_off_edge_time &&
-        time_elapsed_this_rotation_us <= half_rotation_time - motor_off_edge_time) {
-        handle_tank(bot_state, more_motor_percent_throttle, less_motor_percent_throttle, 0);
-    } else if (time_elapsed_this_rotation_us >= half_rotation_time + motor_off_edge_time &&
-        time_elapsed_this_rotation_us <= us_per_rotation - motor_off_edge_time) {
-        handle_tank(bot_state, less_motor_percent_throttle, more_motor_percent_throttle, 0);    
-    }
+    handle_tank(bot_state, more_motor_percent_throttle, less_motor_percent_throttle, 0);
+    
+    // No longer needed with sinusoidal control. it auto-handles it :)
+
+    // if (time_elapsed_this_rotation_us >= motor_off_edge_time &&
+    //    time_elapsed_this_rotation_us <= half_rotation_time - motor_off_edge_time) {
+    //    handle_tank(bot_state, more_motor_percent_throttle, less_motor_percent_throttle, 0);
+    // } else if (time_elapsed_this_rotation_us >= half_rotation_time + motor_off_edge_time &&
+    //    time_elapsed_this_rotation_us <= us_per_rotation - motor_off_edge_time) {
+    //    handle_tank(bot_state, less_motor_percent_throttle, more_motor_percent_throttle, 0);    
+    //}
 }
 
 void handle_spin_led(uint64_t time_elapsed_this_rotation_us, uint64_t us_per_rotation, uint64_t led_on_us) {

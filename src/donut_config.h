@@ -13,7 +13,7 @@ uint8_t donut_get_curr_drive_mode();
 
 //----------BOT TYPE----------
 
-// #include "donut_1lb_config.h"
+//#include "donut_1lb_config.h"
 #include "donut_3lb_config.h"
 
 //----------END BOT TYPE----------
@@ -23,7 +23,7 @@ uint8_t donut_get_curr_drive_mode();
 
 // #define RUNNING_A_TEST
 
-#define FAKE_RPM 60 // the fake rpm to be used in get_fake_rpm (in some capacity)
+//#define FAKE_RPM 60 // the fake rpm to be used in get_fake_rpm (in some capacity)
 
 // #define LIE_ABOUT_RPM // fakes RPM data
 // #define LIE_ABOUT_INPUT // fakes receiver data

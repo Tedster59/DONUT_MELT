@@ -29,7 +29,7 @@
 #define ACCEL_MOUNT_RADIUS_CM 0 // this being 0 prevents accel_offset from going negative in 3lb mode
 
 // this value will need to be tuned to a good speed - Cai
-#define HEADING_CONTROL_SENSITIVITY 0.01 // tunes how fast the heading led moves left or right
+#define HEADING_CONTROL_SENSITIVITY 0.025 // tunes how fast the heading led moves left or right
 
 #define ACCEL_1_X_OFFSET -7
 #define ACCEL_1_Y_OFFSET -5
