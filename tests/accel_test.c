@@ -2,6 +2,8 @@
 #include "H3LIS331DL.h"
 #include "../src/donut_config.h"
 
+#define RUNNING_A_TEST
+
 static accelerometer_t accel_1 = {
     .accelerometer_address = ACCELEROMETER_ADDRESS,
     .i2c_port = ACCEL_1_I2C_PORT,
@@ -24,13 +26,13 @@ int main() {
 
     while (1) {
         double* accel_1_data = accelerometer_get_all_axis(&accel_1);
-        printf("accel_1 X axis: %lf \n", accel_1_data[0]-ACCEL_1_X_OFFSET);
-        printf("accel_1 Y axis: %lf \n", accel_1_data[1]-ACCEL_1_Y_OFFSET);
+        printf("accel_1 X axis: %lf \n", accel_1_data[0]);
+        printf("accel_1 Y axis: %lf \n", accel_1_data[1]);
         printf("accel_1 Z axis: %lf \n\n", accel_1_data[2]);
 
         double* accel_2_data = accelerometer_get_all_axis(&accel_1);
-        printf("accel_2 X axis: %lf \n", accel_2_data[0]-ACCEL_2_X_OFFSET);
-        printf("accel_2 Y axis: %lf \n", accel_2_data[1]-ACCEL_2_Y_OFFSET);
+        printf("accel_2 X axis: %lf \n", accel_2_data[0]);
+        printf("accel_2 Y axis: %lf \n", accel_2_data[1]);
         printf("accel_2 Z axis: %lf \n\n", accel_2_data[2]);
     }
     
