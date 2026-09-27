@@ -60,7 +60,7 @@ static accelerometer_t accel_2 = {
     }
 #else 
     uint8_t donut_is_throttle_zero() { 
-        return receiver_is_channel_near_value(LEFT_JOYSTICK_Y, RECEIVER_LOWEST_CHANNEL_VALUE, 150);
+        return receiver_is_channel_near_value(LEFT_JOYSTICK_Y, RECEIVER_LOWEST_CHANNEL_VALUE, 125);
     }
 
     uint8_t donut_is_killswitch_active() {
@@ -142,7 +142,7 @@ void when_failsafe_off() {
             0.0,
             input_remapping(0),
         #else 
-            direction * pow(receiver_get_percent_for_channel(LEFT_JOYSTICK_Y), 3), 
+            direction * pow(receiver_get_percent_for_channel(LEFT_JOYSTICK_Y), 2), 
             input_remapping(receiver_get_percent_for_channel(LEFT_JOYSTICK_X)), 
             input_remapping(receiver_get_percent_for_channel(RIGHT_JOYSTICK_Y)), 
             input_remapping(receiver_get_percent_for_channel(RIGHT_JOYSTICK_X)),
