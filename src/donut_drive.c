@@ -7,8 +7,8 @@ uint8_t drive_is_throttle_zero() {
     }
 
     if (donut_get_curr_drive_mode() == DRIVE_MODE_TANK) {
-        return receiver_is_channel_near_value(RIGHT_JOYSTICK_X, RECEIVER_MIDDLEST_CHANNEL_VALUE, 150)
-        && receiver_is_channel_near_value(RIGHT_JOYSTICK_Y, RECEIVER_MIDDLEST_CHANNEL_VALUE, 150);
+        return receiver_is_channel_near_value(RIGHT_JOYSTICK_X, RECEIVER_MIDDLEST_CHANNEL_VALUE, 50)
+        && receiver_is_channel_near_value(RIGHT_JOYSTICK_Y, RECEIVER_MIDDLEST_CHANNEL_VALUE, 100);
     }
 }
 
@@ -138,7 +138,7 @@ void handle_spin(bot_state_t* bot_state, double left_y_percent, double right_y_p
     double half_rotation_time = us_per_rotation/2;
     double motor_off_edge_time = (half_rotation_time - MOTOR_ON_PERCENT_DURATION*us_per_rotation)/2;
 
-    if (is_close_enough(right_y_percent, 0, 0.125)) {
+    if (is_close_enough(right_y_percent, 0, 0.1)) {
         // this should just fully spin in circles
         handle_all_spin(bot_state, left_y_percent, 0, time_elapsed_this_rotation_us, us_per_rotation, half_rotation_time, motor_off_edge_time);
     } else {
@@ -170,7 +170,7 @@ void handle_spin(bot_state_t* bot_state, double left_y_percent, double right_y_p
 
 // -1..1 -> -max..max
 double rescalePercentThrottle(double percent_throttle, double max, bool use_deadzone) {
-    if (use_deadzone && percent_throttle >= -0.05 && percent_throttle <= 0.05) {
+    if (use_deadzone && percent_throttle >= -0.025 && percent_throttle <= 0.025) {
         return 0;
     }
     return percent_throttle * max;
