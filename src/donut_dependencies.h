@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <stdint.h>
 
+#define RPM_WINDOW_SIZE 16
+
 typedef struct {
     uint8_t is_failsafed;
     uint8_t require_zero_throttle;
@@ -13,6 +15,7 @@ typedef struct {
 
     uint32_t max_rpm;
     uint32_t rpm;
+    uint32_t rpm_buff[10];
 
     // raw_accel_g_value * 100 with the decimals cut off
     uint16_t accel_g_value;

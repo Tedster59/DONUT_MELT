@@ -180,31 +180,20 @@ double rescalePercentThrottle(double percent_throttle, double max, bool use_dead
 void drive_update_bot_state(bot_state_t* bot_state, pc_state_t* throttle_pc_state, double left_y_percent, double left_x_percent, double right_y_percent, double right_x_percent, double (*get_rpm)(double, double)) { 
     static uint64_t last_loop = 0;
 
-    // printf("throttle_pc_state->curr_value=%lf \n",throttle_pc_state->curr_value);
     pc_update_pc_state(throttle_pc_state, time_us_64() - last_loop);
 
     #ifdef CAN_ADJUST_ACCEL_MOUNT_RADIUS
         if (left_x_percent <= -0.25 || left_x_percent >= 0.25) {
             float delta = ACCEL_OFFSET_SENSITIVITY*(left_x_percent/fabs(left_x_percent));
+            // delta = fmin(fmax(0.8, left_x_percent), RPM_MULTIPLIER_UPPER_LIMIT); // Bad - this caps the offset
             bot_state->accel_offset_cm += delta;
-            if (ACCEL_MOUNT_RADIUS_CM + bot_state->accel_offset_cm <= 0) {
-                bot_state->accel_offset_cm -= delta;
-            }
+
+            bot_state->accel_offset_cm = fmin(fmax(0.8, bot_state->accel_offset_cm), RPM_MULTIPLIER_UPPER_LIMIT);
         }
     #endif
-    
-    // getting rpm
-    #ifdef LIE_ABOUT_RPM
-        double raw_rpm = get_rpm(right_x_percent, bot_state->accel_offset_cm);
-    #else 
-        double raw_rpm = get_rpm(0, bot_state->accel_offset_cm);
-    #endif
-    bot_state->rpm = raw_rpm;
 
-    // keeping track of max rpm
-    if (bot_state->rpm > bot_state->max_rpm) {
-        bot_state->max_rpm = bot_state->rpm;
-    }
+    // rpm is no longer read here — bot_state->rpm is kept current by
+    // get_rpm/get_rpm_2accel itself, called once per rotation from handle_spin
 
     if(drive_is_throttle_zero()) {
         if (donut_get_curr_drive_mode() == DRIVE_MODE_MELTY) {

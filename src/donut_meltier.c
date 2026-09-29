@@ -15,7 +15,7 @@ static bot_state_t bot_state = {
     .accel_g_value = 0,
     
     #ifdef DONUT_3LB_CONFIG
-        .accel_offset_cm = 1
+        .accel_offset_cm = 0.99
     #else 
         .accel_offset_cm = 0
     #endif
