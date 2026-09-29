@@ -14,8 +14,10 @@ static bot_state_t bot_state = {
     .rpm = 0,
     .accel_g_value = 0,
     
+    // For V2 boards, 1.1, For V3.1.1 boards, 0.99
+    
     #ifdef DONUT_3LB_CONFIG
-        .accel_offset_cm = 0.99
+        .accel_offset_cm = 1.1
     #else 
         .accel_offset_cm = 0
     #endif
