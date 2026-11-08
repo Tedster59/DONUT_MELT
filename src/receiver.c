@@ -40,7 +40,8 @@ uint16_t receiver_get_channel(Channel channel) {
 }
 
 uint8_t receiver_is_channel_near_value(Channel channel, uint16_t value, uint16_t tolerance) {
-    return fabs(receiver_get_channel(channel) - value) <= tolerance;
+    // channels are unsigned, so take the difference as int (abs, not fabs: it's an integer)
+    return abs((int)receiver_get_channel(channel) - (int)value) <= tolerance;
 }
 
 double receiver_get_percent_for_channel(Channel channel) {

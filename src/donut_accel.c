@@ -5,6 +5,8 @@ static accelerometer_t* accel_1;
 static accelerometer_t* accel_2;
 
 #define RPM_WINDOW_SIZE 8   // ~8 rotations of smoothing at 10-15k RPM = a few tens of ms
+// smooth_rpm wraps its index with "& (RPM_WINDOW_SIZE - 1)", which only works for powers of two
+_Static_assert((RPM_WINDOW_SIZE & (RPM_WINDOW_SIZE - 1)) == 0, "RPM_WINDOW_SIZE must be a power of 2");
 
 static double rpm_buf[RPM_WINDOW_SIZE];
 static double rpm_sum = 0;

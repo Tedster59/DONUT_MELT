@@ -10,6 +10,10 @@ uint8_t drive_is_throttle_zero() {
         return receiver_is_channel_near_value(RIGHT_JOYSTICK_X, RECEIVER_MIDDLEST_CHANNEL_VALUE, 50)
         && receiver_is_channel_near_value(RIGHT_JOYSTICK_Y, RECEIVER_MIDDLEST_CHANNEL_VALUE, 100);
     }
+
+    // unknown drive mode: report zero throttle so the caller idles the motors
+    // (previously fell off the end of the function, which returns garbage in C)
+    return 1;
 }
 
 uint8_t is_close_enough(double num1, double num2, double tolerance) {
@@ -18,10 +22,11 @@ uint8_t is_close_enough(double num1, double num2, double tolerance) {
 
 // goes from rpm -> microseconds per rotation
 double rpm_to_upr(double rpm) {
-    if (rpm == 0) {
-        return 0; 
+    if (!(rpm > 0)) { // 0, negative or NaN
+        return 0;
     }
-    return (uint64_t) 60000000.0 / rpm;
+    // (the old "(uint64_t) 60000000.0 / rpm" only cast the constant, so it never truncated anyway)
+    return 60000000.0 / rpm;
 }
 
 uint16_t percentThrottleToThrottleCommand(double percent_throttle) {
@@ -116,9 +121,20 @@ void handle_spin(bot_state_t* bot_state, double left_y_percent, double right_y_p
     // math calls so I am gonna ignore it for now! - Cai
     static double rpm; 
     
-    if (bot_state->this_rotations_start_time_us == -1) {
+    if (bot_state->this_rotations_start_time_us == ROTATION_NOT_STARTED) {
         rpm = get_rpm(right_x_percent, bot_state->accel_offset_cm);
         bot_state->this_rotations_start_time_us = time_us_64();
+    }
+
+    // No usable rotation period (RPM 0, negative or NaN): everything below divides by it, and the
+    // NaNs that produced used to cut the motors for that loop and fed NaN into integer conversions.
+    // Spin both motors at the commanded throttle without translation and retry the RPM read.
+    if (!(rpm > 0)) {
+        handle_tank(bot_state, left_y_percent, left_y_percent, 0);
+        led_set_and_update_state(1);
+        rpm = get_rpm(right_x_percent, bot_state->accel_offset_cm);
+        bot_state->this_rotations_start_time_us = time_us_64();
+        return;
     }
 
     // if we aren't fast enough to translate, spin up as fast as possible (can be bypassed)

@@ -36,11 +36,11 @@ typedef struct {
 // returns the link counters and resets the per-window min/max fields
 receiver_link_info_t receiver_take_link_info();
 
-#ifdef RSSI_RAW_DUMP
-    // pops the oldest unprinted link stats sample; false when none are waiting
-    bool receiver_pop_raw_sample(receiver_raw_sample_t* out);
-    uint32_t receiver_raw_samples_overwritten();
-#endif
+// only defined with RSSI_RAW_DUMP (declared unconditionally because this header is included
+// from the top of donut_config.h, before the diagnostics defines exist)
+// pops the oldest unprinted link stats sample; false when none are waiting
+bool receiver_pop_raw_sample(receiver_raw_sample_t* out);
+uint32_t receiver_raw_samples_overwritten();
 
 uint16_t receiver_get_channel(Channel channel);
 

@@ -9,7 +9,7 @@ static bot_state_t bot_state = {
         .require_zero_throttle = 1,
     #endif
 
-    .this_rotations_start_time_us = -1,
+    .this_rotations_start_time_us = ROTATION_NOT_STARTED,
     .max_rpm = 0,
     .rpm = 0,
     .accel_g_value = 0,
@@ -116,6 +116,10 @@ void when_failsafe_on() {
     motor_stop_all();
 
     bot_state.require_zero_throttle = 1;
+
+    // forget the previous spin's rotation timing so the first melty loop after going live
+    // reads a fresh RPM instead of reusing the last spin's RPM and start time
+    bot_state.this_rotations_start_time_us = ROTATION_NOT_STARTED;
 
     bot_state.rpm = 0;
     bot_state.max_rpm = 0;

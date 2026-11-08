@@ -8,11 +8,11 @@ void telemetry_output_diagnostics(bot_state_t* bot_state) {
     printf("\n---------DIAGNOSTICS START-------------\n\n");
 
     #ifdef TIME_SINCE_BOOT_DIAGNOSTICS
-        printf("DIAGNOSTICS AT %d SECS SINCE BOOT \n\n", get_seconds_since_boot());
+        printf("DIAGNOSTICS AT %lu SECS SINCE BOOT \n\n", (unsigned long)get_seconds_since_boot());
     #endif
 
     #ifdef ACCEL_DIAGNOSTICS
-        printf("rpm: %d | ", bot_state->rpm);
+        printf("rpm: %lu | ", (unsigned long)bot_state->rpm);
         printf("accel_g_value: %d | ", bot_state->accel_g_value);
         printf("accel_offset_cm: %lf \n\n", bot_state->accel_offset_cm);
     #endif
@@ -40,7 +40,7 @@ void telemetry_output_diagnostics(bot_state_t* bot_state) {
         printf("--------OTHER INFO---------\n");
         printf("is_failsafed: %d \n", bot_state->is_failsafed);
         printf("require_zero_throttle: %d \n", bot_state->require_zero_throttle);
-        printf("get_curr_drive_mode: %d \n", drive_get_curr_drive_mode());
+        printf("get_curr_drive_mode: %d \n", donut_get_curr_drive_mode());
         printf("is_killswitch_active: %d \n", donut_is_killswitch_active());
         printf("is_throttle_zero: %d \n", donut_is_throttle_zero());
         printf("left_stick_y_percent: %lf \n", receiver_get_percent_for_channel(LEFT_JOYSTICK_Y));

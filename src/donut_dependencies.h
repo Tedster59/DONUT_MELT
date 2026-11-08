@@ -4,8 +4,11 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 
-#define RPM_WINDOW_SIZE 16
+// this_rotations_start_time_us value meaning "no rotation in progress": the next melty loop reads
+// a fresh RPM and starts timing from scratch (was written as -1, which wraps to this anyway)
+#define ROTATION_NOT_STARTED UINT64_MAX
 
 typedef struct {
     uint8_t is_failsafed;
@@ -15,7 +18,6 @@ typedef struct {
 
     uint32_t max_rpm;
     uint32_t rpm;
-    uint32_t rpm_buff[10];
 
     // raw_accel_g_value * 100 with the decimals cut off
     uint16_t accel_g_value;
