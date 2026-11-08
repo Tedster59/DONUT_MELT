@@ -11,6 +11,12 @@ static receiver_link_info_t _link_info = {
 };
 static uint64_t _last_link_stats_us = 0;
 
+// failsafe = the CRSF library's LQ/RSSI verdict OR no RC frame for RECEIVER_RC_TIMEOUT_US.
+// The library only re-evaluates on link stats frames, so a receiver that stops sending entirely
+// (brownout, broken wire, crash) would otherwise leave the bot driving on its last channel values.
+static bool _crsf_failsafe = true;
+static uint64_t _last_rc_frame_us = 0;
+
 #ifdef RSSI_RAW_DUMP
     // raw link stats samples waiting to be printed; overwritten (and counted) if printing falls behind
     #define RAW_DUMP_BUF_SIZE 512
@@ -23,6 +29,7 @@ static uint64_t _last_link_stats_us = 0;
 void on_rc_channels(const uint16_t channels[16]) {
     // printf("on_rc_channels was called \n");
     _link_info.rc_frames++;
+    _last_rc_frame_us = time_us_64();
     for (int i = 0; i < 16; i++){
         _user_channels[i] = channels[i];
     }
@@ -100,7 +107,8 @@ receiver_link_info_t receiver_take_link_info() {
 #endif
 
 void on_failsafe(const bool failsafe) {
-    _user_bot_state->is_failsafed = failsafe;
+    // only fires when the library's verdict changes; combined with the RC timeout in receiver_update()
+    _crsf_failsafe = failsafe;
 }
 
 void receiver_send_telemetry(uint16_t diag1, uint16_t diag2, uint32_t diag3, uint8_t diag4) {
@@ -132,4 +140,7 @@ void receiver_init(uart_inst_t* uart_id, int tx_pin, int rx_pin, int link_qualit
 
 void receiver_update() {
     crsf_process_frames(&_user_crsf_instance);
+
+    bool rc_timed_out = _last_rc_frame_us == 0 || time_us_64() - _last_rc_frame_us > RECEIVER_RC_TIMEOUT_US;
+    _user_bot_state->is_failsafed = _crsf_failsafe || rc_timed_out;
 }

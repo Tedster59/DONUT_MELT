@@ -65,6 +65,10 @@ uint8_t donut_get_curr_drive_mode();
 #define RECEIVER_HIGHEST_CHANNEL_VALUE 1780 // actual highest is 1790
 #define RECEIVER_MIDDLEST_CHANNEL_VALUE 1001 // (222 + 1780)/2 = 1001
 
+// failsafe if no RC channels frame arrives for this long (frames normally arrive every ~1ms at 1kHz,
+// ~20ms at the slowest 50Hz ELRS rate). Catches a receiver that stops talking without reporting low LQ.
+#define RECEIVER_RC_TIMEOUT_US 100000
+
 //----------END REICEVER SETTINGS----------
 
 
