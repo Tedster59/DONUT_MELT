@@ -77,8 +77,8 @@ uint8_t donut_get_curr_drive_mode();
 // uses get_rpm_rssi (RSSI estimate, falling back to get_rpm_2accel) for the 3lb drive loop
 // #define USE_RSSI_RPM
 
-#define RSSI_RPM_GRID_INTERVAL_US 2000     // RSSI resample spacing: 500 Hz grid, Nyquist = 15000 RPM
-#define RSSI_RPM_BUF_SIZE 256              // grid samples analysed: 256 * 2ms = 512ms window
+#define RSSI_RPM_GRID_INTERVAL_US 1000     // RSSI resample spacing: matches the 1kHz packet rate, Nyquist = 30000 RPM per RSSI cycle/rotation
+#define RSSI_RPM_BUF_SIZE 512              // grid samples analysed: 512 * 1ms = 512ms window
 #define RSSI_RPM_MAX_GAP_US 250000         // link stats gap that discards the history
 #define RSSI_RPM_UPDATE_INTERVAL_US 50000  // how often the estimate is recomputed (~0.1-0.2ms of CPU each)
 #define RSSI_RPM_MIN_SEED_RPM 300          // don't search until the accel says we're spinning

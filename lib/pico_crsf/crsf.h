@@ -16,7 +16,9 @@
 #include <stdint.h>
 #include "pico/stdlib.h"
 
-#define BAUD_RATE 420000
+// Must match the receiver's UART baud. 921600 for the custom ELRS RX build (RCVR_UART_BAUD in
+// ExpressLRS/src/super_defines.txt), which sends link stats every packet; stock ELRS uses 420000.
+#define BAUD_RATE 921600
 #define CRSF_MAX_CHANNELS 16
 #define CRSF_MAX_FRAME_SIZE 64
 #define CRSF_DEBUG 0
