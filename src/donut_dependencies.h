@@ -20,6 +20,11 @@ typedef struct {
     // raw_accel_g_value * 100 with the decimals cut off
     uint16_t accel_g_value;
     double accel_offset_cm;
+
+    // latest RSSI-based RPM estimate (0 when unavailable) and how tone-like the
+    // RSSI was at that frequency (~1.0 = pure sinusoid, near 0 = noise)
+    uint32_t rssi_rpm;
+    float rssi_rpm_confidence;
 } bot_state_t;
 
 typedef struct {
@@ -46,6 +51,7 @@ typedef struct {
 
 #include "donut_pc.h"
 #include "donut_accel.h"
+#include "donut_rssi_rpm.h"
 #include "donut_drive.h"
 #include "donut_telemetry.h"
 

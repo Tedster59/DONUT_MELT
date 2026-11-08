@@ -17,6 +17,11 @@ void telemetry_output_diagnostics(bot_state_t* bot_state) {
         printf("accel_offset_cm: %lf \n\n", bot_state->accel_offset_cm);
     #endif
 
+    #ifdef RSSI_RPM_DIAGNOSTICS
+        printf("rssi_rpm: %lu | ", (unsigned long)bot_state->rssi_rpm);
+        printf("rssi_rpm_confidence: %f \n\n", bot_state->rssi_rpm_confidence);
+    #endif
+
     #ifdef FULL_CONTROLLER_DIAGNOSTICS
         printf("--------FULL CONTROLLER INFO---------\n");
         printf("RIGHT_JOYSTICK_X: %d | ", receiver_get_channel(RIGHT_JOYSTICK_X));
@@ -43,6 +48,73 @@ void telemetry_output_diagnostics(bot_state_t* bot_state) {
     #endif
 
     printf("---------DIAGNOSTICS END-------------\n\n");
+}
+
+#define LINK_DIAGNOSTICS_INTERVAL_US 1000000
+#define RAW_DUMP_LINES_PER_LOOP 4 // keeps each loop's printing short so UART bytes aren't missed
+
+void telemetry_output_link_diagnostics(bot_state_t* bot_state) {
+    static uint64_t window_start_us = 0;
+    static uint64_t last_call_us = 0;
+    static uint32_t loops = 0;
+    static uint32_t max_loop_us = 0;
+    static uint32_t last_rc_frames = 0;
+    static uint32_t last_link_frames = 0;
+
+    uint64_t now = time_us_64();
+
+    // main loop timing: the Pico's UART FIFO is 32 bytes (~0.76ms at 420k baud), so a
+    // loop slower than that can drop CRSF bytes and lose frames to CRC errors
+    if (last_call_us != 0 && now - last_call_us > max_loop_us) {
+        max_loop_us = (uint32_t)(now - last_call_us);
+    }
+    loops++;
+
+    #ifdef RSSI_RAW_DUMP
+        // CSV lines: R,<timestamp_us>,<rssi (-dBm)>,<link quality %>
+        receiver_raw_sample_t sample;
+        for (int i = 0; i < RAW_DUMP_LINES_PER_LOOP && receiver_pop_raw_sample(&sample); i++) {
+            printf("R,%llu,%u,%u\n", sample.timestamp_us, sample.rssi, sample.link_quality);
+        }
+    #endif
+
+    if (window_start_us == 0) {
+        window_start_us = now;
+    }
+
+    #ifdef RSSI_LINK_DIAGNOSTICS
+        if (now - window_start_us >= LINK_DIAGNOSTICS_INTERVAL_US) {
+            float secs = (now - window_start_us) / 1000000.0f;
+            receiver_link_info_t info = receiver_take_link_info();
+            uint32_t link_frames = info.link_stats_frames - last_link_frames;
+
+            printf("LINK %.1fs | link_stats %.1f Hz", secs, link_frames / secs);
+            if (link_frames > 1) {
+                printf(" (gap min %lu max %lu us)", (unsigned long)info.min_gap_us, (unsigned long)info.max_gap_us);
+            }
+            printf(" | rc %.1f Hz", (info.rc_frames - last_rc_frames) / secs);
+            if (link_frames > 0) {
+                printf(" | rssi -%u dBm (window -%u..-%u) lq %u%% snr %d",
+                    info.last.rssi, info.rssi_min, info.rssi_max, info.last.link_quality, info.last.snr);
+            }
+            printf(" | loop %.0f Hz max %lu us", loops / secs, (unsigned long)max_loop_us);
+            printf(" | rpm accel %lu rssi %lu conf %.2f",
+                (unsigned long)bot_state->rpm, (unsigned long)bot_state->rssi_rpm, bot_state->rssi_rpm_confidence);
+            #ifdef RSSI_RAW_DUMP
+                printf(" | raw dropped %lu", (unsigned long)receiver_raw_samples_overwritten());
+            #endif
+            printf("\n");
+
+            last_rc_frames = info.rc_frames;
+            last_link_frames = info.link_stats_frames;
+            window_start_us = now;
+            loops = 0;
+            max_loop_us = 0;
+            now = time_us_64(); // don't count our own printing as loop time
+        }
+    #endif
+
+    last_call_us = now;
 }
 
 // this function and send_telemetry work together to switch between different sets of telemetry to send to transmitter 

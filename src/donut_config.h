@@ -68,6 +68,25 @@ uint8_t donut_get_curr_drive_mode();
 //----------END REICEVER SETTINGS----------
 
 
+//----------RSSI RPM SETTINGS----------
+
+// uses get_rpm_rssi (RSSI estimate, falling back to get_rpm_2accel) for the 3lb drive loop
+// #define USE_RSSI_RPM
+
+#define RSSI_RPM_GRID_INTERVAL_US 2000     // RSSI resample spacing: 500 Hz grid, Nyquist = 15000 RPM
+#define RSSI_RPM_BUF_SIZE 256              // grid samples analysed: 256 * 2ms = 512ms window
+#define RSSI_RPM_MAX_GAP_US 250000         // link stats gap that discards the history
+#define RSSI_RPM_UPDATE_INTERVAL_US 50000  // how often the estimate is recomputed (~0.1-0.2ms of CPU each)
+#define RSSI_RPM_MIN_SEED_RPM 300          // don't search until the accel says we're spinning
+#define RSSI_RPM_SEARCH_FRACTION 0.3f      // search accel_rpm * (1 +/- this)
+#define RSSI_RPM_SEARCH_STEPS 48           // frequencies evaluated across that band
+#define RSSI_RPM_HARMONIC 1                // RSSI cycles per rotation (2 if the antenna pattern has two lobes)
+#define RSSI_RPM_MIN_CONFIDENCE 0.25f      // minimum confidence for get_rpm_rssi to trust the estimate
+#define RSSI_RPM_MAX_AGE_US 200000         // older than this and get_rpm_rssi falls back to accel
+
+//----------END RSSI RPM SETTINGS----------
+
+
 //----------MOTOR SETTINGS----------
 
 // ESC pins are connected as follows:
@@ -97,6 +116,14 @@ uint8_t donut_get_curr_drive_mode();
 
 // #define TIME_SINCE_BOOT_DIAGNOSTICS
 #define ACCEL_DIAGNOSTICS
+// #define RSSI_RPM_DIAGNOSTICS
+
+// Link stats / RSSI debugging over USB serial. These print on their own schedule, so leave
+// OUTPUT_DIAGNOSTICS off while using them (it prints every loop and would skew the timing).
+// RSSI_LINK_DIAGNOSTICS: one "LINK ..." summary line per second (rates, gaps, RSSI, loop time)
+// RSSI_RAW_DUMP: every link stats sample as "R,<timestamp_us>,<rssi>,<lq>" CSV lines
+#define RSSI_LINK_DIAGNOSTICS
+// #define RSSI_RAW_DUMP
 // #define FULL_CONTROLLER_DIAGNOSTICS
 // #define OTHER_DIAGNOSTICS
 

@@ -153,7 +153,9 @@ void when_failsafe_off() {
         #ifdef LIE_ABOUT_RPM
             get_fake_rpm
         #else
-            #ifdef DONUT_3LB_CONFIG
+            #if defined(DONUT_3LB_CONFIG) && defined(USE_RSSI_RPM)
+                get_rpm_rssi
+            #elif defined(DONUT_3LB_CONFIG)
                 get_rpm_2accel
             #else
                 get_rpm
@@ -173,6 +175,11 @@ void always() {
         #endif
 
         receiver_update();
+        rssi_rpm_update();
+
+        #if defined(RSSI_LINK_DIAGNOSTICS) || defined(RSSI_RAW_DUMP)
+            telemetry_output_link_diagnostics(&bot_state);
+        #endif
     #endif
 
     watchdog_update(); // keep watchdog happy
