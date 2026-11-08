@@ -65,8 +65,12 @@ static accelerometer_t accel_2 = {
         return receiver_is_channel_near_value(LEFT_JOYSTICK_Y, RECEIVER_LOWEST_CHANNEL_VALUE, 125);
     }
 
+    // SWITCH_E is CH5/AUX1, which ELRS treats as its arm switch (high = armed) and sends in
+    // every packet. Live = high so ELRS's armed state matches the bot actually running
+    // (dynamic power, Race telemetry, etc.). Anything that isn't clearly high, including
+    // the all-zero channels before the first RC frame arrives, counts as killed.
     uint8_t donut_is_killswitch_active() {
-        return receiver_is_channel_near_value(SWITCH_E, RECEIVER_HIGHEST_CHANNEL_VALUE, 50);
+        return !receiver_is_channel_near_value(SWITCH_E, RECEIVER_HIGHEST_CHANNEL_VALUE, 50);
     }
 
     uint8_t donut_get_curr_drive_mode() {
