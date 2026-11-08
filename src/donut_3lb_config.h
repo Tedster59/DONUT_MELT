@@ -39,11 +39,11 @@
 // V3.1.1 board 3: 1x = -1.78, 1y = -0.88, 2x = -1.80, 2y = -0.87
 // V3.1.1 board 4: 1x = -2.73, 1y = -2.61, 2x = -2.73, 2y = -2.61
 
-#define ACCEL_1_X_OFFSET -4.99
-#define ACCEL_1_Y_OFFSET -4.14
+#define ACCEL_1_X_OFFSET -2.11
+#define ACCEL_1_Y_OFFSET -1.12
 
-#define ACCEL_2_X_OFFSET -5.02
-#define ACCEL_2_Y_OFFSET -4.18
+#define ACCEL_2_X_OFFSET -2.08
+#define ACCEL_2_Y_OFFSET -1.21
 
 
 #define THROTTLE_PC_P 0.8 // was 0.5 for working translation test with 1lb on 4/29/26 - Cai
@@ -65,7 +65,7 @@
 // the throttle sent to each motor can be during a half-rotation
 // 1 = very different
 // 0 = can't differ at all
-#define MELTY_MAX_TRANSLATION_AGGRESSION 0.6 
+#define MELTY_MAX_TRANSLATION_AGGRESSION 0.8 
 #define MELTY_MAX_THROTTLE 1.0
 
 #define TANK_DRIVE_MAX_THROTTLE 0.125

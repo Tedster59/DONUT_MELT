@@ -125,11 +125,11 @@ double get_rpm_2accel(double right_x_percent, double accel_offset_cm) {
         Accel1Data = vec_subtract(Accel1Data, Accel1Offsets);
         Accel2Data = vec_subtract(Accel2Data, Accel2Offsets);
 
-        Accel1Position.x = 1.0 * 1.0/sqrtf(2.0);
-        Accel1Position.y = 1.0 * 1.0/sqrtf(2.0);
+        Accel1Position.x = 1.05 * 1.0/sqrtf(2.0);
+        Accel1Position.y = 1.05 * 1.0/sqrtf(2.0);
 
-        Accel2Position.x = -1.0 * 1.0/sqrtf(2.0);
-        Accel2Position.y = -1.0 * 1.0/sqrtf(2.0);
+        Accel2Position.x = -1.05 * 1.0/sqrtf(2.0);
+        Accel2Position.y = -1.05 * 1.0/sqrtf(2.0);
 
         Vector2D delta_A = vec_subtract(Accel1Data, Accel2Data);
         Vector2D delta_pos = vec_subtract(Accel2Position, Accel1Position);

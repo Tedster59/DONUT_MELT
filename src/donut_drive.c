@@ -183,7 +183,7 @@ void drive_update_bot_state(bot_state_t* bot_state, pc_state_t* throttle_pc_stat
     pc_update_pc_state(throttle_pc_state, time_us_64() - last_loop);
 
     #ifdef CAN_ADJUST_ACCEL_MOUNT_RADIUS
-        if (left_x_percent <= -0.25 || left_x_percent >= 0.25) {
+        if (left_x_percent <= -0.05 || left_x_percent >= 0.05) {
             float delta = ACCEL_OFFSET_SENSITIVITY*(left_x_percent/fabs(left_x_percent));
             // delta = fmin(fmax(0.8, left_x_percent), RPM_MULTIPLIER_UPPER_LIMIT); // Bad - this caps the offset
             bot_state->accel_offset_cm += delta;
