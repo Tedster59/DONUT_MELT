@@ -46,7 +46,18 @@ void motor_init_all(int dshot_speed, int motor1_pin, PIO motor1_pio, int motor2_
     // negative time means that the callback is called at a consistent rate regardless of time taken during callback call
     add_repeating_timer_us(-200, set_throttle_callback, NULL, &set_throttle_timer);
 
-    // initing escs by going 0 - 1000 - 0 for some reason, it shouldn't work like this but it does
+    // After a watchdog-type reboot (our watchdog timing out mid-run, or the bootrom reboot after a
+    // UF2 flash), the ESCs may already be powered and armed. The init sequence below sends 1000,
+    // which the DShot library turns into 1047: FULL REVERSE in 3D mode. An armed ESC would drive
+    // that for a full second, so skip the sequence and hold zero throttle (already being sent by
+    // the timer above). Armed ESCs keep running on zero; ESCs that dropped out re-arm on zero.
+    if (watchdog_caused_reboot()) {
+        return;
+    }
+
+    // Cold power-on only: initing escs by going 0 - 1000 - 0 for some reason, it shouldn't work
+    // like this but it does. Likely harmless here only because the ESCs are still booting and
+    // ignore the 1000 (full reverse) -- see the watchdog check above.
     motor_set_throttle_for_all(0);
     sleep_ms(1000);
 
