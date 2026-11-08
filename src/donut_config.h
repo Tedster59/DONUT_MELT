@@ -91,6 +91,23 @@ uint8_t donut_get_curr_drive_mode();
 //----------END RSSI RPM SETTINGS----------
 
 
+//----------RPM CORRECTION CURVE SETTINGS (3lb)----------
+
+// corrected rpm = accel rpm * clamp(curve(accel rpm) * trim). See donut_rpm_curve.h for tuning steps.
+#define RPM_CORRECTION_MIN 0.5
+#define RPM_CORRECTION_MAX 1.5
+#define RPM_TRIM_RATE_PER_SEC 0.35          // left stick X trim speed (matches the old per-loop step at ~3.5kHz)
+#define RPM_TRIM_DEADZONE 0.05              // left stick X (after input_remapping) deadzone
+#define RPM_CURVE_MAX_POINTS 8
+#define RPM_CURVE_MERGE_FRACTION 0.05f      // saving within 5% of an existing point's rpm updates that point
+#define RPM_CURVE_MIN_SAVE_RPM 300          // ignore save presses below this accel rpm
+#define RPM_CURVE_CLEAR_HOLD_MS 3000        // hold the save switch this long while killed to clear the curve
+#define RPM_CURVE_PERSIST_DELAY_MS 2000     // killswitch must be on this long before writing to flash
+#define RPM_CURVE_FLASH_OFFSET (1024 * 1024 - 4096) // one sector just below the run logger's region
+
+//----------END RPM CORRECTION CURVE SETTINGS----------
+
+
 //----------FLASH LOGGER SETTINGS----------
 
 // Records RSSI samples + RPM estimates in RAM while the bot is live, saves the run to flash once

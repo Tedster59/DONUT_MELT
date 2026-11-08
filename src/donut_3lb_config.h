@@ -16,15 +16,8 @@
 
 //----------DONUT DRIVE SETTINGS---------
 
-// Some notes about RPM_MULTIPLIER LIMITS and how they works for the 3lb:
-// left_stick_x "perma" adjusts the rpm say the accelerometer reading is 75% 
-// of what it should be you could bump it up to use 1.25 times what it is reading 
-
-// RPM_MULTIPLIER LIMITS limit how far that adjustment can go 
-// (i.e. can pretend to use a max of 2x the reading, or a min of .25x the reading, etc.) 
-
-#define RPM_MULTIPLIER_UPPER_LIMIT 1.1
-#define RPM_MULTIPLIER_LOWER_LIMIT 0.25
+// The accelerometer RPM correction (left_stick_x trim + saved curve points on CH10) and its
+// limits now live under "RPM CORRECTION CURVE SETTINGS" in donut_config.h (donut_rpm_curve.c).
 
 #define ACCEL_MOUNT_RADIUS_CM 0 // this being 0 prevents accel_offset from going negative in 3lb mode
 
@@ -48,10 +41,9 @@
 
 #define THROTTLE_PC_P 0.8 // was 0.5 for working translation test with 1lb on 4/29/26 - Cai
 
-// CAN_ADJUST_ACCEL_MOUNT_RADIUS is defined here so you can use the 
-// left_stick_x to adjust the get_rpm_2accel RPM reading by a constant factor
+// CAN_ADJUST_ACCEL_MOUNT_RADIUS is defined here so you can use the left_stick_x to trim the
+// get_rpm_2accel RPM correction factor (rate: RPM_TRIM_RATE_PER_SEC in donut_config.h)
 #define CAN_ADJUST_ACCEL_MOUNT_RADIUS
-#define ACCEL_OFFSET_SENSITIVITY 0.0001
 
 #define MOTOR_ON_PERCENT_DURATION 0.5 // This might technically be a half of a half - Cai (I still have no idea what this comment means - also Cai)
 #define MIN_TRANSLATION_RPM 400

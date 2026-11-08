@@ -21,7 +21,10 @@ typedef struct {
 
     // raw_accel_g_value * 100 with the decimals cut off
     uint16_t accel_g_value;
-    double accel_offset_cm;
+    double accel_offset_cm; // 1lb only: cm added to the accel mount radius. Unused on 3lb (see rpm_correction)
+
+    // 3lb: correction factor applied to the accelerometer rpm on the last read (curve * trim)
+    float rpm_correction;
 
     // latest RSSI-based RPM estimate (0 when unavailable) and how tone-like the
     // RSSI was at that frequency (~1.0 = pure sinusoid, near 0 = noise)
@@ -55,6 +58,7 @@ typedef struct {
 #include "donut_accel.h"
 #include "donut_rssi_rpm.h"
 #include "donut_logger.h"
+#include "donut_rpm_curve.h"
 #include "donut_drive.h"
 #include "donut_telemetry.h"
 

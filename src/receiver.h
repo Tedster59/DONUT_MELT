@@ -13,8 +13,8 @@ typedef enum {
     SWITCH_B,
     SWITCH_C,
     SWITCH_F,
-    KNOB_S1,
-    KNOB_S2
+    MOMENTARY_CH9,        // CH9: TX12 momentary button (unused)
+    RPM_CURVE_SAVE_SWITCH // CH10: TX12 momentary button, saves an RPM correction curve point (hold while killed to clear)
 } Channel;
 
 typedef struct {

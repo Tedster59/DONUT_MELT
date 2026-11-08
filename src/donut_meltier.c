@@ -13,14 +13,11 @@ static bot_state_t bot_state = {
     .max_rpm = 0,
     .rpm = 0,
     .accel_g_value = 0,
-    
-    // For V2 boards, 1.1, For V3.1.1 boards, 0.99
-    
-    #ifdef DONUT_3LB_CONFIG
-        .accel_offset_cm = 1.1
-    #else 
-        .accel_offset_cm = 0
-    #endif
+
+    // 1lb only (cm added to the accel mount radius). The 3lb uses the RPM correction curve instead,
+    // which is loaded from flash at boot (donut_rpm_curve.c).
+    .accel_offset_cm = 0,
+    .rpm_correction = 1.0f
 };
 
 static pc_state_t throttle_pc_state = {
@@ -108,7 +105,9 @@ void init_bot_systems() {
             logger_init();
         #endif
     #endif
-    
+
+    rpm_curve_init();
+
     motor_init_all(DSHOT_SPEED, MOTOR1_PIN, MOTOR1_PIO, MOTOR2_PIN, MOTOR2_PIO, &bot_state);
 
     watchdog_enable(WATCH_DOG_TIMEOUT_MS, 0);
@@ -132,11 +131,8 @@ void when_failsafe_on() {
     bot_state.rpm = 0;
     bot_state.max_rpm = 0;
     bot_state.accel_g_value = 0;
-    #ifdef DONUT_3LB_CONFIG
-        bot_state.accel_offset_cm = 1;
-    #else
-        bot_state.accel_offset_cm = 0;
-    #endif
+    // (the rpm correction is no longer reset here: the trim survives kills, saved points survive
+    // power cycles, and holding CH10 for 3 s while killed clears back to the default)
 
     if (bot_state.is_failsafed == 0 && donut_is_throttle_zero()){
         bot_state.require_zero_throttle = 0;
@@ -201,6 +197,9 @@ void always() {
             logger_update(&bot_state, donut_is_live(), donut_is_killswitch_active());
         #endif
 
+        #ifdef DONUT_3LB_CONFIG
+            rpm_curve_update(&bot_state, donut_is_live(), donut_is_killswitch_active());
+        #endif
     #endif
 
     watchdog_update(); // keep watchdog happy

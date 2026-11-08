@@ -14,7 +14,12 @@ void telemetry_output_diagnostics(bot_state_t* bot_state) {
     #ifdef ACCEL_DIAGNOSTICS
         printf("rpm: %lu | ", (unsigned long)bot_state->rpm);
         printf("accel_g_value: %d | ", bot_state->accel_g_value);
-        printf("accel_offset_cm: %lf \n\n", bot_state->accel_offset_cm);
+        #ifdef DONUT_3LB_CONFIG
+            printf("rpm_correction: %.3f (trim %.3f, %u curve points) \n\n",
+                bot_state->rpm_correction, rpm_curve_trim(), rpm_curve_point_count());
+        #else
+            printf("accel_offset_cm: %lf \n\n", bot_state->accel_offset_cm);
+        #endif
     #endif
 
     #ifdef RSSI_RPM_DIAGNOSTICS
@@ -32,8 +37,8 @@ void telemetry_output_diagnostics(bot_state_t* bot_state) {
         printf("SWITCH_B: %d | ", receiver_get_channel(SWITCH_B));
         printf("SWITCH_C: %d | ", receiver_get_channel(SWITCH_C));
         printf("SWITCH_F: %d \n", receiver_get_channel(SWITCH_F));
-        printf("KNOB_S1: %d | ", receiver_get_channel(KNOB_S1));
-        printf("KNOB_S2: %d \n\n", receiver_get_channel(KNOB_S2));
+        printf("MOMENTARY_CH9: %d | ", receiver_get_channel(MOMENTARY_CH9));
+        printf("RPM_CURVE_SAVE_SWITCH (CH10): %d \n\n", receiver_get_channel(RPM_CURVE_SAVE_SWITCH));
     #endif
 
     #ifdef OTHER_DIAGNOSTICS
@@ -145,7 +150,12 @@ void telemetry_send_telemetry(bot_state_t* bot_state) {
             receiver_send_telemetry(donut_get_curr_drive_mode()*10,donut_is_killswitch_active()*10,bot_state->max_rpm,2);
             break;
         case TELEMETRY_MAIN:
-            receiver_send_telemetry(bot_state->is_failsafed*10,(bot_state->accel_offset_cm < 0)*10,(uint32_t) fabs(bot_state->accel_offset_cm*10000),3);
+            #ifdef DONUT_3LB_CONFIG
+                // diag2 = saved curve points (shows as N.0), diag3 = current correction factor * 10000
+                receiver_send_telemetry(bot_state->is_failsafed*10, rpm_curve_point_count()*10, (uint32_t)(bot_state->rpm_correction*10000), 3);
+            #else
+                receiver_send_telemetry(bot_state->is_failsafed*10,(bot_state->accel_offset_cm < 0)*10,(uint32_t) fabs(bot_state->accel_offset_cm*10000),3);
+            #endif
             break;
     }
 }

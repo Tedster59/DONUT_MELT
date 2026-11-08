@@ -206,7 +206,11 @@ void drive_update_bot_state(bot_state_t* bot_state, pc_state_t* throttle_pc_stat
 
     pc_update_pc_state(throttle_pc_state, time_us_64() - last_loop);
 
-    #ifdef CAN_ADJUST_ACCEL_MOUNT_RADIUS
+    #if defined(CAN_ADJUST_ACCEL_MOUNT_RADIUS) && defined(DONUT_3LB_CONFIG)
+        // left stick X trims the rpm correction factor (saved into the curve with CH10)
+        rpm_curve_adjust_trim(left_x_percent, time_us_64() - last_loop);
+    #elif defined(CAN_ADJUST_ACCEL_MOUNT_RADIUS)
+        // legacy 1lb: left stick X adjusts the accel mount radius offset in cm
         if (left_x_percent <= -0.05 || left_x_percent >= 0.05) {
             float delta = ACCEL_OFFSET_SENSITIVITY*(left_x_percent/fabs(left_x_percent));
             // delta = fmin(fmax(0.8, left_x_percent), RPM_MULTIPLIER_UPPER_LIMIT); // Bad - this caps the offset

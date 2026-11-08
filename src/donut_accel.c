@@ -149,7 +149,11 @@ double get_rpm_2accel(double right_x_percent, double accel_offset_cm) {
         double smoothed_rpm = smooth_rpm(rpm);
         _user_bot_state->rpm = (uint32_t) smoothed_rpm;
 
-        double adjusted_rpm = fmax(RPM_MULTIPLIER_LOWER_LIMIT, fmin(fmax(0.8, accel_offset_cm), RPM_MULTIPLIER_UPPER_LIMIT)) * smoothed_rpm; 
+        // non-linear accelerometer correction: saved curve interpolated at this rpm, times the live
+        // left-stick trim (donut_rpm_curve.c). accel_offset_cm is not used on the 3lb.
+        double correction = rpm_curve_factor(smoothed_rpm);
+        _user_bot_state->rpm_correction = (float)correction;
+        double adjusted_rpm = correction * smoothed_rpm;
         return adjusted_rpm + adjusted_rpm * right_x_percent * HEADING_CONTROL_SENSITIVITY;
     #else
         return -1;
