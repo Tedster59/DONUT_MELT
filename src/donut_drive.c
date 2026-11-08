@@ -162,8 +162,16 @@ void handle_spin(bot_state_t* bot_state, double left_y_percent, double right_y_p
 
     // if we have completed a rotation, get ready for next rotation
     if (time_elapsed_this_rotation_us >= us_per_rotation) {
-        // doing more expensive calls before resetting time_elapsed_this_rotation_us
-        bot_state->this_rotations_start_time_us = time_us_64();
+        // Advance the start by exactly one rotation instead of jumping to "now": the loop notices
+        // the boundary up to one iteration late, and restarting from "now" adds that overshoot to
+        // every rotation, which shows up as a steady heading drift. If we're more than a rotation
+        // behind (stall, first loop after re-arming, rpm of 0), resync to now instead.
+        if (time_elapsed_this_rotation_us >= 2 * us_per_rotation) {
+            bot_state->this_rotations_start_time_us = time_us_64();
+        } else {
+            // round (not truncate) so the sub-microsecond remainder doesn't bias the drift one way
+            bot_state->this_rotations_start_time_us += (uint64_t)(us_per_rotation + 0.5);
+        }
         rpm = get_rpm(right_x_percent, bot_state->accel_offset_cm);
     }
 }
