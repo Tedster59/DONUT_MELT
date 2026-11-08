@@ -101,7 +101,10 @@ void crsf_init(crsf_instance* ins) {
   {
     ins->frameHasData[i] = false;
   }
-
+  ins->frame_index = 0;
+  ins->frame_length = 0;
+  ins->crc_index = 0;
+  ins->last_telem_us = 0;
 }
 
 /**
@@ -501,19 +504,22 @@ void crsf_send_telem(crsf_instance *ins)
  */
 void crsf_process_frames(crsf_instance *ins)
 {
-  // check if there is data available to read
-  uint8_t frameIndex = 0;
-  uint8_t frameLength = 0;
-  uint8_t crcIndex = 0;
-  // It takes 23.8095238095 µs to receive the next byte at 420000 baud
-  while (uart_is_readable_within_us(ins->uart, 24))
+  // Drain only what is already in the UART FIFO, without waiting for more bytes. The parser
+  // state lives in ins, so a frame that is still arriving is completed on a later call
+  // (previously the state was reset every call, dropping any frame split across calls).
+  // If a byte is ever lost, the CRC check fails and the parser re-syncs on the next 0xC8.
+  while (uart_is_readable(ins->uart))
   {
-    // read the data
     uint8_t currentByte = uart_getc(ins->uart);
-    crsf_process_frame(ins, &frameIndex, &frameLength, &crcIndex, currentByte);
+    crsf_process_frame(ins, &ins->frame_index, &ins->frame_length, &ins->crc_index, currentByte);
   }
 
-  crsf_send_telem(ins);
+  uint64_t now = time_us_64();
+  if (now - ins->last_telem_us >= CRSF_TELEM_INTERVAL_US)
+  {
+    ins->last_telem_us = now;
+    crsf_send_telem(ins);
+  }
 }
 
 /**

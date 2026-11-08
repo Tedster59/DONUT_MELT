@@ -155,7 +155,19 @@ typedef struct
 	telemetry_t telemetry;
 	bool frameHasData[TELEMETRY_FRAME_TYPES];
 	int currentFrameType;
+
+	// incoming frame parser state, kept across crsf_process_frames() calls so a frame
+	// that is only partly received when the UART FIFO runs dry is finished next call
+	uint8_t frame_index;
+	uint8_t frame_length;
+	uint8_t crc_index;
+
+	uint64_t last_telem_us; // telemetry is sent at most every CRSF_TELEM_INTERVAL_US
 } crsf_instance;
+
+// The receiver only forwards a telemetry frame per over-the-air telemetry slot (a few Hz to
+// tens of Hz), so sending faster just occupies the UART: one battery frame takes ~286us at 420k baud.
+#define CRSF_TELEM_INTERVAL_US 10000
 
 #define TICKS_TO_US(x) ((x - 992.0f) * 5.0f / 8.0f + 1500.0f)
 
