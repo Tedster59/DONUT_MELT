@@ -3,9 +3,14 @@
 static accelerometer_t* accel_1;
 static accelerometer_t* accel_2;
 
+// Every I2C transfer has a timeout. The *_blocking calls wait forever, so a glitched or stuck bus
+// (e.g. a connection bouncing under impact) froze the main loop until the watchdog rebooted the
+// bot mid-match. A 6-byte read takes ~200us at 400kHz; on timeout the last good reading is kept.
+#define ACCEL_I2C_TIMEOUT_US 1000
+
 void write_to_register(accelerometer_t* accel, uint8_t register_address, uint8_t register_value){
     uint8_t buffer[2] = {register_address, register_value};
-    i2c_write_blocking(accel->i2c_port, accel->accelerometer_address, buffer, 2, false);
+    i2c_write_timeout_us(accel->i2c_port, accel->accelerometer_address, buffer, 2, false, ACCEL_I2C_TIMEOUT_US);
 }
 
 void setup_accelerometer(accelerometer_t* accel) {
@@ -38,8 +43,10 @@ bool is_data_ready_to_be_read(accelerometer_t* accel)
 {
     uint8_t status_reg = 0x27;
     uint8_t status;
-    i2c_write_blocking(accel->i2c_port, accel->accelerometer_address, &status_reg, 1, true);
-    i2c_read_blocking(accel->i2c_port, accel->accelerometer_address, &status, 1, false);
+    if (i2c_write_timeout_us(accel->i2c_port, accel->accelerometer_address, &status_reg, 1, true, ACCEL_I2C_TIMEOUT_US) != 1 ||
+        i2c_read_timeout_us(accel->i2c_port, accel->accelerometer_address, &status, 1, false, ACCEL_I2C_TIMEOUT_US) != 1) {
+        return false; // bus error/timeout: treat as "no new data" so the caller keeps the last reading
+    }
     if (status & 0x08) { // ZYXDA bit - all axes have new data
     // read axis data
         return true;
@@ -53,9 +60,11 @@ double* accelerometer_get_all_axis(accelerometer_t* accel){ //Maybe make a struc
     }
 
     uint8_t firstRegister = (1 << 7) | LSB_X_REGISTER_ADDRESS; //MSB is 1 for auto-increment during register reads
-    i2c_write_blocking(accel->i2c_port, accel->accelerometer_address, &firstRegister, 1, true); //pretty sure this function handles setting the LSB of ACCELEROMETER_ADDRESS to 1 for write bc all I2C addresses are 7 bits 
     uint8_t buffer[6]; //need enough space for MSB register and LSB register of each axis
-    i2c_read_blocking(accel->i2c_port, accel->accelerometer_address, buffer, 6, false); //same here with the read bit of the address, data stored in buffer 
+    if (i2c_write_timeout_us(accel->i2c_port, accel->accelerometer_address, &firstRegister, 1, true, ACCEL_I2C_TIMEOUT_US) != 1 || //pretty sure this function handles setting the LSB of ACCELEROMETER_ADDRESS to 1 for write bc all I2C addresses are 7 bits
+        i2c_read_timeout_us(accel->i2c_port, accel->accelerometer_address, buffer, 6, false, ACCEL_I2C_TIMEOUT_US) != 6) { //same here with the read bit of the address, data stored in buffer
+        return accel->_curr_readings; // bus error/timeout: keep the last good reading
+    }
     static double results[3];
     for (int i = 0; i < 3; ++i){
         // data is little endian (LSB register first). Combining the bytes explicitly avoids the old
