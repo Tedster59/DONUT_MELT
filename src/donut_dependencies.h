@@ -54,6 +54,7 @@ typedef struct {
 #include "donut_pc.h"
 #include "donut_accel.h"
 #include "donut_rssi_rpm.h"
+#include "donut_logger.h"
 #include "donut_drive.h"
 #include "donut_telemetry.h"
 

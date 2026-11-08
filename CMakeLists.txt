@@ -35,6 +35,8 @@ add_executable(donut_melt
     src/donut_pc.c
     src/donut_accel.c
     src/donut_rssi_rpm.c
+    src/donut_logger.c
+    src/donut_flash.c
     src/donut_drive.c
     src/donut_telemetry.c
 
@@ -76,6 +78,7 @@ target_link_libraries(donut_melt
 
     hardware_pio
     hardware_uart
+    hardware_flash
     hardware_watchdog
     pico_time
 )

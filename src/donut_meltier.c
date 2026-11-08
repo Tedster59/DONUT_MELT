@@ -104,11 +104,19 @@ void init_bot_systems() {
     #ifndef LIE_ABOUT_INPUT
         receiver_init(RECEIVER_UART_ID, RECEIVER_UART_TX_PIN, RECEIVER_UART_RX_PIN, 70, 105, &bot_state);
         accel_init(&accel_1, &accel_2, &bot_state);
+        #ifdef USE_FLASH_LOGGER
+            logger_init();
+        #endif
     #endif
     
     motor_init_all(DSHOT_SPEED, MOTOR1_PIN, MOTOR1_PIO, MOTOR2_PIN, MOTOR2_PIO, &bot_state);
 
     watchdog_enable(WATCH_DOG_TIMEOUT_MS, 0);
+}
+
+// true when the drive code is allowed to run the motors
+static bool donut_is_live() {
+    return !(bot_state.is_failsafed || bot_state.require_zero_throttle || donut_is_killswitch_active());
 }
 
 // a just connected or just powered on bot starts here, this is also where failsafed bots go
@@ -188,6 +196,11 @@ void always() {
         #if defined(RSSI_LINK_DIAGNOSTICS) || defined(RSSI_RAW_DUMP)
             telemetry_output_link_diagnostics(&bot_state);
         #endif
+
+        #ifdef USE_FLASH_LOGGER
+            logger_update(&bot_state, donut_is_live(), donut_is_killswitch_active());
+        #endif
+
     #endif
 
     watchdog_update(); // keep watchdog happy
@@ -209,7 +222,7 @@ int main() {
     init_bot_systems();
 
     while(1){
-        if (bot_state.is_failsafed || bot_state.require_zero_throttle || donut_is_killswitch_active()){
+        if (!donut_is_live()){
             when_failsafe_on();
         } else {
             when_failsafe_off();
