@@ -56,10 +56,12 @@ double* accelerometer_get_all_axis(accelerometer_t* accel){ //Maybe make a struc
     i2c_write_blocking(accel->i2c_port, accel->accelerometer_address, &firstRegister, 1, true); //pretty sure this function handles setting the LSB of ACCELEROMETER_ADDRESS to 1 for write bc all I2C addresses are 7 bits 
     uint8_t buffer[6]; //need enough space for MSB register and LSB register of each axis
     i2c_read_blocking(accel->i2c_port, accel->accelerometer_address, buffer, 6, false); //same here with the read bit of the address, data stored in buffer 
-    uint16_t* collapsed_buffer = (uint16_t*) buffer; //array decays into pointer to first element which I cast to a uint16_t pointer
     static double results[3];
     for (int i = 0; i < 3; ++i){
-        int16_t raw = (int16_t)collapsed_buffer[i] >> 4; // CLAUDE SAID TO DO THIS PART - Cai
+        // data is little endian (LSB register first). Combining the bytes explicitly avoids the old
+        // uint8_t* -> uint16_t* cast (strict-aliasing/alignment UB in C); same result on this CPU.
+        uint16_t word = (uint16_t)(buffer[2*i] | (buffer[2*i + 1] << 8));
+        int16_t raw = (int16_t)word >> 4; // CLAUDE SAID TO DO THIS PART - Cai (12-bit left-justified value)
         results[i] = raw * ACCEL_SENSITIVITY / 1000.0; //divided by 1000.0 for gs + makes it a double
     }
 
