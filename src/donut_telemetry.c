@@ -122,6 +122,42 @@ void telemetry_output_link_diagnostics(bot_state_t* bot_state) {
     last_call_us = now;
 }
 
+void telemetry_output_esc_diagnostics(void) {
+    static uint64_t window_start_us = 0;
+    static motor_telemetry_t last[2];
+
+    uint64_t now = time_us_64();
+    if (window_start_us == 0) {
+        window_start_us = now;
+        return;
+    }
+    if (now - window_start_us < LINK_DIAGNOSTICS_INTERVAL_US) {
+        return;
+    }
+    float secs = (now - window_start_us) / 1000000.0f;
+    window_start_us = now;
+
+    printf("ESC");
+    for (uint8_t m = 1; m <= 2; m++) {
+        motor_telemetry_t t;
+        bool any = motor_get_telemetry(m, &t);
+        motor_telemetry_t* l = &last[m - 1];
+        printf(" | m%u ", m);
+        if (any) {
+            printf("erpm %lu rpm %lu (age %lu us)", (unsigned long)t.erpm, (unsigned long)t.rpm, (unsigned long)t.erpm_age_us);
+        } else {
+            printf("no erpm yet");
+        }
+        printf(" ok %.0f/s crc %lu miss %lu other %lu",
+            (t.erpm_packets - l->erpm_packets) / secs,
+            (unsigned long)(t.checksum_errors - l->checksum_errors),
+            (unsigned long)(t.missing - l->missing),
+            (unsigned long)(t.other_packets - l->other_packets));
+        *l = t;
+    }
+    printf("\n");
+}
+
 // this function and send_telemetry work together to switch between different sets of telemetry to send to transmitter 
 uint8_t get_telemetry_state() {
     if (receiver_get_channel(SWITCH_F) >= RECEIVER_HIGHEST_CHANNEL_VALUE){

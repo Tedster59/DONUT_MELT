@@ -141,6 +141,10 @@ uint8_t donut_get_curr_drive_mode();
 
 #define DSHOT_SPEED 600 // could be 150, 300, 450, 600 + some more
 
+// motor magnet count / 2, converts the ESC's bidirectional DShot eRPM to motor shaft RPM.
+// CHECK THIS against the motor spec: 7 is the usual 14-magnet (12N14P) outrunner.
+#define MOTOR_POLE_PAIRS 7
+
 #define DRIVE_MODE_MELTY 1
 #define DRIVE_MODE_TANK 2
 
@@ -161,8 +165,11 @@ uint8_t donut_get_curr_drive_mode();
 // OUTPUT_DIAGNOSTICS off while using them (it prints every loop and would skew the timing).
 // RSSI_LINK_DIAGNOSTICS: one "LINK ..." summary line per second (rates, gaps, RSSI, loop time)
 // RSSI_RAW_DUMP: every link stats sample as "R,<timestamp_us>,<rssi>,<lq>" CSV lines
-#define RSSI_LINK_DIAGNOSTICS
+ #define RSSI_LINK_DIAGNOSTICS
 // #define RSSI_RAW_DUMP
+
+// one "ESC ..." line per second: bidirectional DShot eRPM/RPM and reply error counts per motor
+// #define ESC_TELEMETRY_DIAGNOSTICS
 // #define FULL_CONTROLLER_DIAGNOSTICS
 // #define OTHER_DIAGNOSTICS
 

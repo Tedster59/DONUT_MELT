@@ -45,7 +45,9 @@ BidirDshotX1TelemetryType BidirDShotX1_getTelemetryPacket(BidirDShotX1* bidirDSh
 
 BidirDshotX1TelemetryType BidirDShotX1_getTelemetryRaw(BidirDShotX1* bidirDShotX1, uint32_t *value);
 
-static uint32_t BidirDShotX1_convertFromRaw(BidirDShotX1* bidirDShotX1, uint32_t raw, BidirDshotX1TelemetryType type);
+uint32_t BidirDShotX1_convertFromRaw(BidirDShotX1* bidirDShotX1, uint32_t raw, BidirDshotX1TelemetryType type);
+
+bool BidirDShotX1_initError(BidirDShotX1* bidirDShotX1);
 
 void c_pico_dshot_is_library_accesible();
 

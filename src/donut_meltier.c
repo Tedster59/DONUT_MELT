@@ -193,6 +193,10 @@ void always() {
             telemetry_output_link_diagnostics(&bot_state);
         #endif
 
+        #ifdef ESC_TELEMETRY_DIAGNOSTICS
+            telemetry_output_esc_diagnostics();
+        #endif
+
         #ifdef USE_FLASH_LOGGER
             logger_update(&bot_state, donut_is_live(), donut_is_killswitch_active());
         #endif

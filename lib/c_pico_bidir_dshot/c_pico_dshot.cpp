@@ -45,8 +45,12 @@ extern "C" {
         return bidirDshotTelemetryTypeToBidirDshotX1TelemetryType(bidirDShotX1->getTelemetryRaw(value));
     }
 
-    static uint32_t BidirDShotX1_convertFromRaw(BidirDShotX1* bidirDShotX1, uint32_t raw, BidirDshotX1TelemetryType type){
+    uint32_t BidirDShotX1_convertFromRaw(BidirDShotX1* bidirDShotX1, uint32_t raw, BidirDshotX1TelemetryType type){
         return bidirDShotX1->convertFromRaw(raw, bidirDshotX1TelemetryTypeToBidirDshotTelemetryType(type));
+    }
+
+    bool BidirDShotX1_initError(BidirDShotX1* bidirDShotX1){
+        return bidirDShotX1->initError();
     }
 
     void c_pico_dshot_is_library_accesible(){
