@@ -118,8 +118,10 @@ void rssi_rpm_update(void) {
         return;
     }
 
-    // starting point from the accelerometer
-    double seed_rpm = _user_bot_state->rpm;
+    // starting point from the accelerometer. Use the curve-corrected rpm: bot_state->rpm is the raw
+    // accel rpm, and with a curve factor outside 1 +/- RSSI_RPM_SEARCH_FRACTION the real rpm would
+    // be outside the search band and RSSI could never lock
+    double seed_rpm = _user_bot_state->rpm * (double)_user_bot_state->rpm_correction;
     if (seed_rpm < RSSI_RPM_MIN_SEED_RPM) {
         publish(0, 0);
         return;
