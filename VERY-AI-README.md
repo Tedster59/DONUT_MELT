@@ -36,6 +36,12 @@ All source files live in the `src/` directory.
 
 **`donut_accel.c`** - Accelerometer interface and RPM calculation. Reads G-force data from the H3LIS331DL and converts it to a spin rate estimate using the configured mount radius.
 
+**`donut_rssi_rpm.c`** - (3lb) Measures RPM from the once-per-rotation pattern in the receiver's uplink RSSI. Runs in shadow mode by default and drives when `USE_RSSI_RPM` is defined, falling back to the accelerometer whenever it loses lock. Needs the custom ELRS receiver firmware. See [docs/RSSI_RPM.md](docs/RSSI_RPM.md).
+
+**`donut_rpm_curve.c`** - (3lb) Accelerometer RPM correction curve stored in flash. Points are saved with CH10, either from the left-stick trim or measured from RSSI.
+
+**`donut_logger.c`** - Flash run logger: records RSSI, RPM estimates and the RPM source during a live run and saves them on kill. Dump and plot with `tools/dump_log.py`.
+
 **`donut_pc.c`** - A basic P controller for dampening left_stick_y throttle adjustments (can be adapted to control other values in-code).
 
 **`motor_driver.c`** - This file controls the motors. Sends DShot packets to the ESCs via the `c_pico_bidir_dshot` library, and reads back RPM telemetry when available.
@@ -91,6 +97,8 @@ A set of standalone test executables are included in the `tests/` directory and 
 ## Telemetry / Debugging
 
 With the motor battery **disconnected**, connect the Pico 2 via USB. If activated in the donut_config.h file, DONUT_MELT streams diagnostic data over USB serial. Open any serial terminal to view RC channel values, accelerometer G readings, calculated RPM, and active config parameters.
+
+For RSSI RPM tracking (transmitter telemetry page, heading LED fallback strobe, flash run log and plots, RPM curve calibration), see [docs/RSSI_RPM.md](docs/RSSI_RPM.md).
 
 > ⚠️ **Warning:** Do not connect USB while the motor battery is connected unless you are certain the robot cannot spin up. Always verify fail-safe is configured on your RC transmitter and receiver.
 
