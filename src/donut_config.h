@@ -88,6 +88,11 @@ uint8_t donut_get_curr_drive_mode();
 #define RSSI_RPM_MIN_CONFIDENCE 0.25f      // minimum confidence for get_rpm_rssi to trust the estimate
 #define RSSI_RPM_MAX_AGE_US 200000         // older than this and get_rpm_rssi falls back to accel
 
+// While USE_RSSI_RPM is driving but has fallen back to the accelerometer (or hasn't locked yet),
+// the heading LED strobes on/off with this period instead of showing a steady arc.
+// Solid heading arc = RSSI, strobing arc = accel fallback. Comment out to disable.
+#define RSSI_RPM_FALLBACK_LED_STROBE_US 80000
+
 //----------END RSSI RPM SETTINGS----------
 
 

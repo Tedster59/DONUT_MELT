@@ -102,8 +102,25 @@ void handle_all_spin(bot_state_t* bot_state, double left_y_percent, double right
     //}
 }
 
-void handle_spin_led(uint64_t time_elapsed_this_rotation_us, uint64_t us_per_rotation, uint64_t led_on_us) {
+// true while RSSI is meant to be driving but the drive is on the accelerometer fallback
+static bool rpm_fallback_active(bot_state_t* bot_state) {
+    #if defined(USE_RSSI_RPM) && defined(DONUT_3LB_CONFIG) && !defined(LIE_ABOUT_RPM)
+        return bot_state->rpm_source != RPM_SOURCE_RSSI;
+    #else
+        return false;
+    #endif
+}
+
+void handle_spin_led(uint64_t time_elapsed_this_rotation_us, uint64_t us_per_rotation, uint64_t led_on_us, bool strobe) {
     // time_elapsed_this_rotation_us == 0 is "forward" for the sake of spin led purposes
+
+    #ifdef RSSI_RPM_FALLBACK_LED_STROBE_US
+        // accel fallback: blank the heading arc every other half period so it visibly strobes
+        if (strobe && (time_us_64() / (RSSI_RPM_FALLBACK_LED_STROBE_US / 2)) % 2) {
+            led_set_and_update_state(0);
+            return;
+        }
+    #endif
 
     // if facing left side or right side of 0 within led_on_us/2 us
     if (time_elapsed_this_rotation_us >= us_per_rotation - led_on_us/2 || 
@@ -174,7 +191,8 @@ void handle_spin(bot_state_t* bot_state, double left_y_percent, double right_y_p
     if (left_y_percent < 0) {
         led_offset_us = us_per_rotation-led_offset_us;
     }
-    handle_spin_led(fmod(time_elapsed_this_rotation_us+led_offset_us, us_per_rotation), us_per_rotation, led_on_us);
+    handle_spin_led(fmod(time_elapsed_this_rotation_us+led_offset_us, us_per_rotation), us_per_rotation, led_on_us,
+        rpm_fallback_active(bot_state));
 
     // if we have completed a rotation, get ready for next rotation
     if (time_elapsed_this_rotation_us >= us_per_rotation) {
