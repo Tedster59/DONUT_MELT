@@ -131,6 +131,9 @@ void when_failsafe_on() {
     bot_state.rpm = 0;
     bot_state.max_rpm = 0;
     bot_state.accel_g_value = 0;
+    bot_state.rpm_source = RPM_SOURCE_ACCEL;
+    bot_state.drive_rpm = 0;
+    bot_state.accel_rpm_corrected = 0;
     // (the rpm correction is no longer reset here: the trim survives kills, saved points survive
     // power cycles, and holding CH10 for 3 s while killed clears back to the default)
 

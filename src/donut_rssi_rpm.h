@@ -20,4 +20,10 @@ void rssi_rpm_update(void);
 // Uses the RSSI RPM when it is recent and confident, otherwise falls back to get_rpm_2accel.
 double get_rpm_rssi(double right_x_percent, double accel_offset_cm);
 
+// true while there is a recent (RSSI_RPM_MAX_AGE_US), confident, non-edge RSSI estimate
+bool rssi_rpm_is_locked(void);
+
+// RSSI_STATE_UNLOCKED / _SHADOW / _DRIVING
+uint8_t rssi_rpm_state(void);
+
 #endif

@@ -154,6 +154,10 @@ double get_rpm_2accel(double right_x_percent, double accel_offset_cm) {
         double correction = rpm_curve_factor(smoothed_rpm);
         _user_bot_state->rpm_correction = (float)correction;
         double adjusted_rpm = correction * smoothed_rpm;
+        _user_bot_state->accel_rpm_corrected = (uint32_t)adjusted_rpm;
+        // get_rpm_rssi overrides these two when it uses the RSSI estimate instead
+        _user_bot_state->rpm_source = RPM_SOURCE_ACCEL;
+        _user_bot_state->drive_rpm = (uint32_t)adjusted_rpm;
         return adjusted_rpm + adjusted_rpm * right_x_percent * HEADING_CONTROL_SENSITIVITY;
     #else
         return -1;

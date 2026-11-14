@@ -30,7 +30,21 @@ typedef struct {
     // RSSI was at that frequency (~1.0 = pure sinusoid, near 0 = noise)
     uint32_t rssi_rpm;
     float rssi_rpm_confidence;
+
+    // which estimate the drive loop used on its last RPM read (RPM_SOURCE_*), the rpm it used
+    // (before the right-stick heading term), and the curve-corrected accelerometer rpm
+    uint8_t rpm_source;
+    uint32_t drive_rpm;
+    uint32_t accel_rpm_corrected;
 } bot_state_t;
+
+#define RPM_SOURCE_ACCEL 0
+#define RPM_SOURCE_RSSI 1
+
+// RSSI tracking state shown on the transmitter and in the log (rssi_rpm_state())
+#define RSSI_STATE_UNLOCKED 0 // no recent confident RSSI estimate (drive is on the accelerometer)
+#define RSSI_STATE_SHADOW 1   // RSSI locked, but the drive is using the accelerometer (USE_RSSI_RPM off)
+#define RSSI_STATE_DRIVING 2  // RSSI locked and driving
 
 typedef struct {
     double curr_target;

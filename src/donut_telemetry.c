@@ -24,7 +24,9 @@ void telemetry_output_diagnostics(bot_state_t* bot_state) {
 
     #ifdef RSSI_RPM_DIAGNOSTICS
         printf("rssi_rpm: %lu | ", (unsigned long)bot_state->rssi_rpm);
-        printf("rssi_rpm_confidence: %f \n\n", bot_state->rssi_rpm_confidence);
+        printf("rssi_rpm_confidence: %f | ", bot_state->rssi_rpm_confidence);
+        printf("rssi_state: %u | drive_rpm: %lu (source %s) \n\n", rssi_rpm_state(),
+            (unsigned long)bot_state->drive_rpm, bot_state->rpm_source == RPM_SOURCE_RSSI ? "rssi" : "accel");
     #endif
 
     #ifdef FULL_CONTROLLER_DIAGNOSTICS
@@ -103,8 +105,10 @@ void telemetry_output_link_diagnostics(bot_state_t* bot_state) {
                     info.last.rssi, info.rssi_min, info.rssi_max, info.last.link_quality, info.last.snr);
             }
             printf(" | loop %.0f Hz max %lu us", loops / secs, (unsigned long)max_loop_us);
-            printf(" | rpm accel %lu rssi %lu conf %.2f",
-                (unsigned long)bot_state->rpm, (unsigned long)bot_state->rssi_rpm, bot_state->rssi_rpm_confidence);
+            static const char* const state_names[] = { "unlocked", "shadow", "DRIVING" };
+            printf(" | rpm accel %lu (corr %lu) rssi %lu conf %.2f %s",
+                (unsigned long)bot_state->rpm, (unsigned long)bot_state->accel_rpm_corrected,
+                (unsigned long)bot_state->rssi_rpm, bot_state->rssi_rpm_confidence, state_names[rssi_rpm_state()]);
             #ifdef RSSI_RAW_DUMP
                 printf(" | raw dropped %lu", (unsigned long)receiver_raw_samples_overwritten());
             #endif

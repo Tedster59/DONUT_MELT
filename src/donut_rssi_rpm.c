@@ -192,16 +192,31 @@ void rssi_rpm_update(void) {
     }
 }
 
+bool rssi_rpm_is_locked(void) {
+    return last_valid_us != 0 && time_us_64() - last_valid_us <= RSSI_RPM_MAX_AGE_US;
+}
+
+uint8_t rssi_rpm_state(void) {
+    if (!rssi_rpm_is_locked()) {
+        return RSSI_STATE_UNLOCKED;
+    }
+    return _user_bot_state->rpm_source == RPM_SOURCE_RSSI ? RSSI_STATE_DRIVING : RSSI_STATE_SHADOW;
+}
+
 double get_rpm_rssi(double right_x_percent, double accel_offset_cm) {
     // always run the accel path: it keeps bot_state->rpm (our search seed) current
-    // and is the fallback whenever the RSSI estimate is stale or unconfident
+    // and is the fallback whenever the RSSI estimate is stale or unconfident.
+    // (get_rpm_2accel sets rpm_source = ACCEL and drive_rpm = the corrected accel rpm)
     double accel_rpm = get_rpm_2accel(right_x_percent, accel_offset_cm);
 
-    if (last_valid_us == 0 || time_us_64() - last_valid_us > RSSI_RPM_MAX_AGE_US) {
+    if (!rssi_rpm_is_locked()) {
         return accel_rpm;
     }
 
-    // RSSI RPM is a direct measurement, so the left-stick accel trim multiplier is not
-    // applied; heading control via right_x_percent works the same as get_rpm_2accel
+    // RSSI RPM is a direct measurement, so the accel correction curve/trim is not applied
+    // (and the drive ignores left stick X while on RSSI); heading control via right_x_percent
+    // works the same as get_rpm_2accel
+    _user_bot_state->rpm_source = RPM_SOURCE_RSSI;
+    _user_bot_state->drive_rpm = (uint32_t)last_valid_rpm;
     return last_valid_rpm + last_valid_rpm * right_x_percent * HEADING_CONTROL_SENSITIVITY;
 }
