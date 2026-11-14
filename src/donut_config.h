@@ -93,6 +93,13 @@ uint8_t donut_get_curr_drive_mode();
 // Solid heading arc = RSSI, strobing arc = accel fallback. Comment out to disable.
 #define RSSI_RPM_FALLBACK_LED_STROBE_US 80000
 
+// CH10 (RPM_CURVE_SAVE_SWITCH) while RSSI is locked and the speed is steady saves the MEASURED
+// factor (rssi rpm / raw accel rpm) as the curve point instead of the hand-trimmed one. Works in
+// shadow mode too (USE_RSSI_RPM off), so you can calibrate the accel curve with RSSI before trusting
+// RSSI to drive. Comment out to always save the hand trim.
+#define RPM_CURVE_SAVE_FROM_RSSI
+#define RSSI_CAL_MAX_SPREAD 0.05f          // max (max-min)/mean of accel rpm, and change between RSSI estimates, over the window
+
 //----------END RSSI RPM SETTINGS----------
 
 

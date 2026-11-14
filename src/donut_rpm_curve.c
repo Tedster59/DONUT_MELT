@@ -134,8 +134,9 @@ void rpm_curve_adjust_trim(double stick, uint64_t dt_us) {
     trim = clamp_factor(trim);
 }
 
-static void save_point(double raw_rpm) {
-    double value = rpm_curve_factor(raw_rpm);
+// stores factor (clamped) as the curve point at raw_rpm
+static void save_point(double raw_rpm, double value) {
+    value = clamp_factor(value);
 
     int nearest = -1;
     double nearest_dist = 0;
@@ -161,6 +162,35 @@ static void save_point(double raw_rpm) {
     trim = 1.0;
     dirty = true;
     printf("CURVE saved point %u rpm -> %.3f (%u points)\n", (unsigned)raw_rpm, value, count);
+}
+
+// CH10 pressed while live
+static void handle_save_press(bot_state_t* bot_state) {
+    #ifdef RPM_CURVE_SAVE_FROM_RSSI
+        double cal_raw_rpm, cal_factor;
+        if (rssi_rpm_get_calibration(&cal_raw_rpm, &cal_factor)) {
+            if (cal_raw_rpm < RPM_CURVE_MIN_SAVE_RPM) {
+                return;
+            }
+            if (cal_factor < RPM_CORRECTION_MIN || cal_factor > RPM_CORRECTION_MAX) {
+                printf("CURVE RSSI factor %.3f outside %.2f..%.2f, clamped\n", cal_factor, RPM_CORRECTION_MIN, RPM_CORRECTION_MAX);
+            }
+            printf("CURVE from RSSI: ");
+            save_point(cal_raw_rpm, cal_factor);
+            return;
+        }
+    #endif
+
+    // RSSI is driving but the speed isn't steady enough to measure: the hand trim is ignored
+    // while on RSSI, so saving it would store a factor nobody has seen work. Do nothing.
+    if (bot_state->rpm_source == RPM_SOURCE_RSSI) {
+        printf("CURVE save ignored: on RSSI but speed not steady\n");
+        return;
+    }
+
+    if (bot_state->rpm >= RPM_CURVE_MIN_SAVE_RPM) {
+        save_point(bot_state->rpm, rpm_curve_factor(bot_state->rpm));
+    }
 }
 
 static void clear_curve(void) {
@@ -208,8 +238,8 @@ void rpm_curve_update(bot_state_t* bot_state, bool live, bool killed) {
         press_start_us = now;
         press_started_killed = killed;
         clear_done = false;
-        if (live && bot_state->rpm >= RPM_CURVE_MIN_SAVE_RPM) {
-            save_point(bot_state->rpm);
+        if (live) {
+            handle_save_press(bot_state);
         }
     } else if (button_held && ch < RECEIVER_MIDDLEST_CHANNEL_VALUE + 200) {
         button_held = false;

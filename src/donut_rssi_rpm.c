@@ -27,6 +27,17 @@ static uint64_t last_update_us = 0;
 static uint64_t last_valid_us = 0;
 static double last_valid_rpm = 0;
 
+// ---------- RPM curve calibration ----------
+// Raw (uncorrected) accel rpm sampled at every update tick, covering the same span as the RSSI
+// window, so the RSSI estimate can be compared against the accel rpm over the same period.
+#define CAL_HISTORY ((RSSI_RPM_BUF_SIZE * RSSI_RPM_GRID_INTERVAL_US + RSSI_RPM_UPDATE_INTERVAL_US - 1) / RSSI_RPM_UPDATE_INTERVAL_US)
+static float accel_hist[CAL_HISTORY];
+static uint8_t accel_hist_head = 0;
+static uint8_t accel_hist_count = 0;
+static uint64_t cal_valid_us = 0;
+static double cal_raw_rpm = 0;
+static double cal_factor = 0;
+
 static void grid_reset(void) {
     grid_head = 0;
     grid_count = 0;
@@ -100,6 +111,33 @@ static float goertzel_power(const float* x, int n, float omega) {
     return s1 * s1 + s2 * s2 - coeff * s1 * s2;
 }
 
+// a calibration point is only taken when the speed was steady across the whole RSSI window: the
+// RSSI estimate averages ~0.5 s, the accel rpm only a few rotations, so during a spin-up the two
+// would be measuring different speeds
+static void update_calibration(uint64_t now, double rssi_rpm, bool prev_recent, double prev_rpm) {
+    if (accel_hist_count < CAL_HISTORY || !prev_recent) {
+        return;
+    }
+    float lo = accel_hist[0];
+    float hi = accel_hist[0];
+    float sum = 0;
+    for (int i = 0; i < CAL_HISTORY; i++) {
+        lo = fminf(lo, accel_hist[i]);
+        hi = fmaxf(hi, accel_hist[i]);
+        sum += accel_hist[i];
+    }
+    float mean = sum / CAL_HISTORY;
+    if (mean < RSSI_RPM_MIN_SEED_RPM || (hi - lo) / mean > RSSI_CAL_MAX_SPREAD) {
+        return;
+    }
+    if (fabs(rssi_rpm - prev_rpm) / rssi_rpm > RSSI_CAL_MAX_SPREAD) {
+        return;
+    }
+    cal_valid_us = now;
+    cal_raw_rpm = mean;
+    cal_factor = rssi_rpm / mean;
+}
+
 static void publish(uint32_t rpm, float confidence) {
     _user_bot_state->rssi_rpm = rpm;
     _user_bot_state->rssi_rpm_confidence = confidence;
@@ -111,6 +149,12 @@ void rssi_rpm_update(void) {
         return;
     }
     last_update_us = now;
+
+    accel_hist[accel_hist_head] = (float)_user_bot_state->rpm;
+    accel_hist_head = (accel_hist_head + 1) % CAL_HISTORY;
+    if (accel_hist_count < CAL_HISTORY) {
+        accel_hist_count++;
+    }
 
     // need a full, current window of history
     if (grid_count < RSSI_RPM_BUF_SIZE || now - grid_last_ts > RSSI_RPM_MAX_GAP_US) {
@@ -187,8 +231,11 @@ void rssi_rpm_update(void) {
     // a peak pinned to the band edge most likely means the real peak is outside the
     // band (accel seed is off by more than RSSI_RPM_SEARCH_FRACTION), so don't trust it
     if (!peak_on_edge && confidence >= RSSI_RPM_MIN_CONFIDENCE) {
+        bool prev_recent = last_valid_us != 0 && now - last_valid_us <= 2 * RSSI_RPM_UPDATE_INTERVAL_US;
+        double prev_rpm = last_valid_rpm;
         last_valid_us = now;
         last_valid_rpm = rpm;
+        update_calibration(now, rpm, prev_recent, prev_rpm);
     }
 }
 
@@ -201,6 +248,15 @@ uint8_t rssi_rpm_state(void) {
         return RSSI_STATE_UNLOCKED;
     }
     return _user_bot_state->rpm_source == RPM_SOURCE_RSSI ? RSSI_STATE_DRIVING : RSSI_STATE_SHADOW;
+}
+
+bool rssi_rpm_get_calibration(double* raw_rpm, double* factor) {
+    if (cal_valid_us == 0 || time_us_64() - cal_valid_us > RSSI_RPM_MAX_AGE_US) {
+        return false;
+    }
+    *raw_rpm = cal_raw_rpm;
+    *factor = cal_factor;
+    return true;
 }
 
 double get_rpm_rssi(double right_x_percent, double accel_offset_cm) {

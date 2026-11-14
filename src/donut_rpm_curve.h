@@ -15,6 +15,12 @@
 // CH10 momentary (RPM_CURVE_SAVE_SWITCH). That stores curve*trim at the current raw RPM (updating
 // a point within RPM_CURVE_MERGE_FRACTION, otherwise adding one, otherwise replacing the nearest)
 // and resets trim to 1.0, so nothing jumps. Repeat at other speeds.
+//
+// With RPM_CURVE_SAVE_FROM_RSSI: if the RSSI estimate is locked and the speed has been steady for the
+// last ~0.5 s, CH10 instead saves the measured factor (rssi rpm / raw accel rpm, averaged over the
+// RSSI window), no hand trimming needed: hold the speed steady for a second, then press. This works
+// in shadow mode too. While RSSI is driving, left stick X trim is ignored and CH10 does nothing
+// unless the speed is steady enough to measure.
 // Points are written to flash once the killswitch has been on for RPM_CURVE_PERSIST_DELAY_MS, and
 // reloaded at boot. Holding CH10 for RPM_CURVE_CLEAR_HOLD_MS while killed clears the curve
 // (back to the default: no points, trim 1.0, i.e. factor 1.0).
