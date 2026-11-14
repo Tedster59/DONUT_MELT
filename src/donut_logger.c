@@ -10,9 +10,10 @@
 
 typedef struct __attribute__((packed)) {
     uint32_t t_us;  // microseconds since the run started
-    char kind;      // 'R' link stats sample, 'A' accel/throttle snapshot, 'P' RSSI RPM estimate
-    uint8_t a;      // R: rssi (-dBm)        A: throttle %      P: confidence * 100
-    uint16_t b;     // R: link quality %     A: accel rpm       P: rssi rpm
+    char kind;      // 'R' link stats sample, 'A' accel/throttle snapshot, 'P' RSSI RPM estimate,
+                    // 'D' drive source, 'C' accel correction
+    uint8_t a;      // R: rssi (-dBm)     A: throttle %   P: confidence * 100   D: RSSI_STATE_*   C: correction * 100
+    uint16_t b;     // R: link quality %  A: accel rpm    P: rssi rpm           D: drive rpm      C: corrected accel rpm
 } log_record_t;
 
 typedef struct {
@@ -143,13 +144,15 @@ static void dump_saved_log(void) {
 
     printf("# DONUT_LOG v%lu records=%lu dropped=%lu\n",
         (unsigned long)h->version, (unsigned long)h->record_count, (unsigned long)h->dropped);
-    printf("kind,t_us,rssi,lq,throttle_pct,accel_rpm,rssi_rpm,confidence\n");
+    printf("kind,t_us,rssi,lq,throttle_pct,accel_rpm,rssi_rpm,confidence,rssi_state,drive_rpm,correction,accel_rpm_corrected\n");
     for (uint32_t i = 0; i < h->record_count; i++) {
         const log_record_t* r = &records[i];
         switch (r->kind) {
-            case 'R': printf("R,%lu,%u,%u,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
-            case 'A': printf("A,%lu,,,%u,%u,,\n", (unsigned long)r->t_us, r->a, r->b); break;
-            case 'P': printf("P,%lu,,,,,%u,%.2f\n", (unsigned long)r->t_us, r->b, r->a / 100.0f); break;
+            case 'R': printf("R,%lu,%u,%u,,,,,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
+            case 'A': printf("A,%lu,,,%u,%u,,,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
+            case 'P': printf("P,%lu,,,,,%u,%.2f,,,,\n", (unsigned long)r->t_us, r->b, r->a / 100.0f); break;
+            case 'D': printf("D,%lu,,,,,,,%u,%u,,\n", (unsigned long)r->t_us, r->a, r->b); break;
+            case 'C': printf("C,%lu,,,,,,,,,%.2f,%u\n", (unsigned long)r->t_us, r->a / 100.0f, r->b); break;
             default: break;
         }
         if ((i & 255) == 0) {
@@ -213,6 +216,13 @@ void logger_update(bot_state_t* bot_state, bool live, bool killed) {
             uint8_t throttle = (uint8_t)(receiver_get_percent_for_channel(LEFT_JOYSTICK_Y) * 100.0);
             uint16_t accel_rpm = bot_state->rpm > UINT16_MAX ? UINT16_MAX : (uint16_t)bot_state->rpm;
             push_record(now, 'A', throttle, accel_rpm);
+
+            uint16_t drive_rpm = bot_state->drive_rpm > UINT16_MAX ? UINT16_MAX : (uint16_t)bot_state->drive_rpm;
+            push_record(now, 'D', rssi_rpm_state(), drive_rpm);
+
+            float corr = fminf(fmaxf(bot_state->rpm_correction, 0.0f), 2.55f);
+            uint16_t corrected = bot_state->accel_rpm_corrected > UINT16_MAX ? UINT16_MAX : (uint16_t)bot_state->accel_rpm_corrected;
+            push_record(now, 'C', (uint8_t)(corr * 100.0f + 0.5f), corrected);
         }
         if (now - last_rssi_rpm_us >= LOGGER_RSSI_RPM_INTERVAL_US) {
             last_rssi_rpm_us = now;

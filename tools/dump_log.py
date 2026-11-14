@@ -51,7 +51,7 @@ def download(port, out_path, timeout_s=60):
                 continue  # skip LINK diagnostics or other output before the dump
             if line == "# END":
                 break
-            if line and (line[0] in "RAP" or line.startswith("kind,")):
+            if line and (line[0] in "RAPDC" or line.startswith("kind,")):
                 lines.append(line)
                 deadline = time.time() + 5  # keep going while data flows
         else:
@@ -68,6 +68,8 @@ def plot(path):
     rssi_t, rssi = [], []
     a_t, accel_rpm, throttle = [], [], []
     p_t, rssi_rpm, conf = [], [], []
+    d_t, state, drive_rpm = [], [], []
+    c_t, corrected_rpm = [], []
     with open(path) as f:
         for row in csv.DictReader(f):
             t = int(row["t_us"]) / 1e6
@@ -82,18 +84,44 @@ def plot(path):
                 p_t.append(t)
                 rssi_rpm.append(int(row["rssi_rpm"]))
                 conf.append(float(row["confidence"]))
+            elif row["kind"] == "D":  # logs from before the D/C records simply have none
+                d_t.append(t)
+                state.append(int(row["rssi_state"]))
+                drive_rpm.append(int(row["drive_rpm"]))
+            elif row["kind"] == "C":
+                c_t.append(t)
+                corrected_rpm.append(int(row["accel_rpm_corrected"]))
 
     fig, axes = plt.subplots(3, 1, sharex=True, figsize=(12, 8))
     axes[0].plot(rssi_t, rssi, lw=0.5)
     axes[0].set_ylabel("RSSI (dBm)")
-    axes[1].plot(a_t, accel_rpm, label="accel")
+    axes[1].plot(a_t, accel_rpm, label="accel raw", alpha=0.5)
+    if c_t:
+        axes[1].plot(c_t, corrected_rpm, label="accel corrected")
     axes[1].plot(p_t, rssi_rpm, label="rssi", marker=".", ls="none")
+    if d_t:
+        axes[1].plot(d_t, drive_rpm, label="used by drive", color="k", lw=0.8)
     axes[1].set_ylabel("RPM")
     axes[1].legend()
     axes[2].plot(a_t, throttle, label="throttle %")
     axes[2].plot(p_t, [c * 100 for c in conf], label="confidence x100")
+    if d_t:
+        # 0 = unlocked (on accel), 1 = locked in shadow mode, 2 = locked and driving
+        axes[2].step(d_t, [s * 50 for s in state], where="post", label="rssi state x50")
     axes[2].set_xlabel("time (s)")
     axes[2].legend()
+
+    # shade where RSSI was not locked, so fallbacks stand out
+    for ax in axes:
+        start = None
+        for t, s in zip(d_t, state):
+            if s == 0 and start is None:
+                start = t
+            elif s != 0 and start is not None:
+                ax.axvspan(start, t, color="red", alpha=0.08, lw=0)
+                start = None
+        if start is not None:
+            ax.axvspan(start, d_t[-1], color="red", alpha=0.08, lw=0)
     fig.tight_layout()
     plt.show()
 

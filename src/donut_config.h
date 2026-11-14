@@ -121,7 +121,7 @@ uint8_t donut_get_curr_drive_mode();
 // Saving only happens on the killswitch, so kill the bot and wait for the save before cutting power.
 #define USE_FLASH_LOGGER
 
-#define LOGGER_BUF_BYTES (384 * 1024)      // RAM ring buffer, 8 bytes/record: ~40 s at 1kHz link stats
+#define LOGGER_BUF_BYTES (384 * 1024)      // RAM ring buffer, 8 bytes/record: ~37 s at 1kHz link stats + 100Hz A/D/C
 #define LOGGER_FLASH_OFFSET (1024 * 1024)  // log region starts 1MB into flash (firmware is ~120KB);
                                            // fits any flash chip >= 2MB
 #define LOGGER_SAVE_DELAY_MS 2000          // killswitch must be on this long before saving
