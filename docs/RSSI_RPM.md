@@ -94,8 +94,28 @@ Record kinds in the CSV:
 | P | 20 Hz | `rssi_rpm`, `confidence` |
 | D | 100 Hz | `rssi_state`, `drive_rpm` (the RPM the drive actually used) |
 | C | 100 Hz | `correction` (curve × trim), `accel_rpm_corrected` |
+| F | event | Failsafe started: `fs_reasons`, `fs_ms` (time since the last RC frame), `rssi`/`lq` (last link stats) |
+| f | event | Failsafe cleared: `fs_ms` = how long it lasted |
+| W | event | This run followed a **watchdog reboot**. The run that was in progress was lost from RAM. |
 
 The plot shows RSSI, then raw accel, corrected accel, RSSI and the RPM used by the drive, then throttle, confidence and RSSI state. Stretches where RSSI was **not locked** are shaded red. Logs from before the D and C records were added still plot, without those traces.
+
+### Failsafe events
+
+The bot only records while live, so a failsafe shows up as a gap in the records. Because the ring buffer keeps only the last ~37 s, an early failsafe used to get overwritten. Failsafe events now go in a separate list of up to 64 per run (the first ones are kept), saved with the run.
+
+`dump_log.py` prints them after downloading. The plot marks them as dashed lines: red for start, green for end, black for a watchdog reboot.
+
+`fs_reasons` is a bitmask:
+
+| Bit | Reason | Meaning |
+|---|---|---|
+| 1 | link LQ/RSSI | The last link stats frame had LQ < 70 or RSSI weaker than -105 dBm (the CRSF library's check) |
+| 2 | RC timeout | No RC frame for `RECEIVER_RC_TIMEOUT_US` (100 ms). The receiver stopped sending, or the serial link dropped. |
+
+Any failsafe sets the "require zero throttle" latch, so after a blip the bot stays killed until you pull the throttle down.
+
+The log format is version 2. The firmware still dumps a version 1 log saved by older firmware, without events.
 
 ## RPM correction curve
 

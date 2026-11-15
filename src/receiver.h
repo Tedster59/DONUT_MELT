@@ -54,4 +54,12 @@ void receiver_init(uart_inst_t* uart_id, int tx_pin, int rx_pin, int link_qualit
 
 void receiver_update();
 
+// why bot_state->is_failsafed is set (bitmask, 0 when not failsafed)
+#define FAILSAFE_REASON_LINK 0x01       // CRSF library: last link stats LQ or RSSI past its threshold
+#define FAILSAFE_REASON_RC_TIMEOUT 0x02 // no RC frame for RECEIVER_RC_TIMEOUT_US (or none since boot)
+uint8_t receiver_failsafe_reasons(void);
+
+// microseconds since the last RC channels frame (UINT32_MAX if none yet)
+uint32_t receiver_rc_frame_age_us(void);
+
 #endif

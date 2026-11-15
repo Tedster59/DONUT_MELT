@@ -145,6 +145,18 @@ void receiver_init(uart_inst_t* uart_id, int tx_pin, int rx_pin, int link_qualit
 void receiver_update() {
     crsf_process_frames(&_user_crsf_instance);
 
+    _user_bot_state->is_failsafed = receiver_failsafe_reasons() != 0;
+}
+
+uint8_t receiver_failsafe_reasons(void) {
     bool rc_timed_out = _last_rc_frame_us == 0 || time_us_64() - _last_rc_frame_us > RECEIVER_RC_TIMEOUT_US;
-    _user_bot_state->is_failsafed = _crsf_failsafe || rc_timed_out;
+    return (_crsf_failsafe ? FAILSAFE_REASON_LINK : 0) | (rc_timed_out ? FAILSAFE_REASON_RC_TIMEOUT : 0);
+}
+
+uint32_t receiver_rc_frame_age_us(void) {
+    if (_last_rc_frame_us == 0) {
+        return UINT32_MAX;
+    }
+    uint64_t age = time_us_64() - _last_rc_frame_us;
+    return age > UINT32_MAX ? UINT32_MAX : (uint32_t)age;
 }

@@ -6,7 +6,7 @@
 #include "donut_flash.h"
 
 #define LOG_MAGIC 0x474F4C44u // "DLOG"
-#define LOG_VERSION 1
+#define LOG_VERSION 2 // v2: failsafe event list after the header (v1 logs still dump, without events)
 
 typedef struct __attribute__((packed)) {
     uint32_t t_us;  // microseconds since the run started
@@ -22,7 +22,24 @@ typedef struct {
     uint32_t record_size;
     uint32_t record_count;
     uint32_t dropped;      // oldest records overwritten because the RAM buffer filled
+    uint32_t event_count;  // v2+
+    uint32_t events_dropped;
 } log_header_t;
+
+// Failsafe events are kept in their own small list rather than the record ring buffer, so a
+// failsafe early in a long run isn't overwritten by the later records (first_spin.csv lost its
+// first 81 s, including the failsafe it was meant to explain). The first LOG_MAX_EVENTS are kept.
+typedef struct __attribute__((packed)) {
+    uint32_t t_us;      // microseconds since the run started
+    char kind;          // 'F' failsafe started, 'f' failsafe cleared, 'W' this run followed a watchdog reboot
+    uint8_t reasons;    // F: FAILSAFE_REASON_* bits
+    uint8_t lq;         // F: last link stats link quality %
+    uint8_t rssi;       // F: last link stats RSSI (-dBm)
+    uint32_t value_us;  // F: time since the last RC frame   f: how long the failsafe lasted
+} log_event_t;
+
+#define LOG_MAX_EVENTS 64
+#define LOG_EVENTS_OFFSET (LOGGER_FLASH_OFFSET + FLASH_PAGE_SIZE) // rest of the header sector
 
 #define LOG_RECORD_SIZE sizeof(log_record_t)
 #define LOG_MAX_RECORDS (LOGGER_BUF_BYTES / LOG_RECORD_SIZE)
@@ -34,6 +51,8 @@ typedef struct {
 _Static_assert(sizeof(log_record_t) == 8, "log record must stay 8 bytes");
 _Static_assert(FLASH_PAGE_SIZE % sizeof(log_record_t) == 0, "records must not straddle flash pages");
 _Static_assert(LOGGER_FLASH_OFFSET % FLASH_SECTOR_SIZE == 0, "LOGGER_FLASH_OFFSET must be sector aligned");
+_Static_assert(sizeof(log_header_t) <= FLASH_PAGE_SIZE, "log header must fit in one flash page");
+_Static_assert(FLASH_PAGE_SIZE + LOG_MAX_EVENTS * sizeof(log_event_t) <= FLASH_SECTOR_SIZE, "events must fit in the header sector");
 
 
 static log_record_t ram_log[LOG_MAX_RECORDS];
@@ -49,14 +68,47 @@ static uint64_t killed_since_us = 0;
 static uint64_t last_status_us = 0;
 static uint64_t last_rssi_rpm_us = 0;
 
+static log_event_t events[LOG_MAX_EVENTS];
+static uint32_t event_count = 0;
+static uint32_t events_dropped = 0;
+static bool prev_failsafed = true;     // the bot boots failsafed, which isn't an event
+static uint64_t failsafe_start_us = 0;
+static bool boot_after_watchdog = false;
+static uint8_t last_lq = 0;
+static uint8_t last_rssi = 0;
+
 static const log_header_t* saved_header(void) {
     return (const log_header_t*)donut_flash_read_ptr(LOG_HEADER_OFFSET);
 }
 
 static bool saved_log_valid(void) {
     const log_header_t* h = saved_header();
-    return h->magic == LOG_MAGIC && h->version == LOG_VERSION &&
+    return h->magic == LOG_MAGIC && (h->version == 1 || h->version == LOG_VERSION) &&
            h->record_size == LOG_RECORD_SIZE && h->record_count <= LOG_MAX_RECORDS;
+}
+
+static uint32_t saved_event_count(void) {
+    const log_header_t* h = saved_header();
+    if (h->version < 2 || h->event_count > LOG_MAX_EVENTS) {
+        return 0; // v1 logs have no event list (and the field reads as erased flash)
+    }
+    return h->event_count;
+}
+
+static void push_event(uint64_t now_us, char kind, uint8_t reasons, uint32_t value_us) {
+    if (event_count == LOG_MAX_EVENTS) {
+        events_dropped++; // keep the first ones: the first failsafe is usually the interesting one
+        return;
+    }
+    events[event_count++] = (log_event_t){
+        .t_us = (uint32_t)(now_us - run_start_us),
+        .kind = kind,
+        .reasons = reasons,
+        .lq = last_lq,
+        .rssi = last_rssi,
+        .value_us = value_us,
+    };
+    have_unsaved = true;
 }
 
 static void push_record(uint64_t now_us, char kind, uint8_t a, uint16_t b) {
@@ -79,9 +131,13 @@ void logger_init(void) {
         disabled = true;
         printf("LOGGER disabled: firmware overlaps LOGGER_FLASH_OFFSET\n");
     }
+    // the RAM log of the run that was going on is gone; note the reboot in the next run instead
+    boot_after_watchdog = watchdog_caused_reboot();
 }
 
 void logger_log_rssi(uint64_t timestamp_us, uint8_t rssi, uint8_t link_quality) {
+    last_lq = link_quality;
+    last_rssi = rssi;
     push_record(timestamp_us, 'R', rssi, link_quality);
 }
 
@@ -116,20 +172,31 @@ static void save_to_flash(void) {
         }
     }
 
+    // events go in the rest of the header sector (erased above with the header)
+    for (uint32_t off = 0; off < event_count * sizeof(log_event_t); off += FLASH_PAGE_SIZE) {
+        memset(page, 0xFF, sizeof(page));
+        uint32_t n = event_count * sizeof(log_event_t) - off;
+        memcpy(page, (const uint8_t*)events + off, n < FLASH_PAGE_SIZE ? n : FLASH_PAGE_SIZE);
+        donut_flash_program_page(LOG_EVENTS_OFFSET + off, page);
+    }
+
     log_header_t header = {
         .magic = LOG_MAGIC,
         .version = LOG_VERSION,
         .record_size = LOG_RECORD_SIZE,
         .record_count = log_count,
         .dropped = log_dropped,
+        .event_count = event_count,
+        .events_dropped = events_dropped,
     };
     memset(page, 0xFF, sizeof(page));
     memcpy(page, &header, sizeof(header));
     donut_flash_program_page(LOG_HEADER_OFFSET, page);
 
     have_unsaved = false;
-    printf("LOGGER saved %lu records (%lu dropped) in %lu ms\n",
-        (unsigned long)log_count, (unsigned long)log_dropped, (unsigned long)((time_us_64() - start_us) / 1000));
+    printf("LOGGER saved %lu records (%lu dropped), %lu events in %lu ms\n",
+        (unsigned long)log_count, (unsigned long)log_dropped, (unsigned long)event_count,
+        (unsigned long)((time_us_64() - start_us) / 1000));
 }
 
 // ---------- USB serial commands ----------
@@ -142,31 +209,52 @@ static void dump_saved_log(void) {
     const log_header_t* h = saved_header();
     const log_record_t* records = (const log_record_t*)donut_flash_read_ptr(LOG_DATA_OFFSET);
 
-    printf("# DONUT_LOG v%lu records=%lu dropped=%lu\n",
-        (unsigned long)h->version, (unsigned long)h->record_count, (unsigned long)h->dropped);
-    printf("kind,t_us,rssi,lq,throttle_pct,accel_rpm,rssi_rpm,confidence,rssi_state,drive_rpm,correction,accel_rpm_corrected\n");
+    uint32_t n_events = saved_event_count();
+    const log_event_t* ev = (const log_event_t*)donut_flash_read_ptr(LOG_EVENTS_OFFSET);
+
+    printf("# DONUT_LOG v%lu records=%lu dropped=%lu events=%lu events_dropped=%lu\n",
+        (unsigned long)h->version, (unsigned long)h->record_count, (unsigned long)h->dropped,
+        (unsigned long)n_events, (unsigned long)(h->version >= 2 ? h->events_dropped : 0));
+    // 14 columns; every row prints all of them
+    printf("kind,t_us,rssi,lq,throttle_pct,accel_rpm,rssi_rpm,confidence,rssi_state,drive_rpm,correction,accel_rpm_corrected,fs_reasons,fs_ms\n");
     for (uint32_t i = 0; i < h->record_count; i++) {
         const log_record_t* r = &records[i];
         switch (r->kind) {
-            case 'R': printf("R,%lu,%u,%u,,,,,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
-            case 'A': printf("A,%lu,,,%u,%u,,,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
-            case 'P': printf("P,%lu,,,,,%u,%.2f,,,,\n", (unsigned long)r->t_us, r->b, r->a / 100.0f); break;
-            case 'D': printf("D,%lu,,,,,,,%u,%u,,\n", (unsigned long)r->t_us, r->a, r->b); break;
-            case 'C': printf("C,%lu,,,,,,,,,%.2f,%u\n", (unsigned long)r->t_us, r->a / 100.0f, r->b); break;
+            case 'R': printf("R,%lu,%u,%u,,,,,,,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
+            case 'A': printf("A,%lu,,,%u,%u,,,,,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
+            case 'P': printf("P,%lu,,,,,%u,%.2f,,,,,,\n", (unsigned long)r->t_us, r->b, r->a / 100.0f); break;
+            case 'D': printf("D,%lu,,,,,,,%u,%u,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
+            case 'C': printf("C,%lu,,,,,,,,,%.2f,%u,,\n", (unsigned long)r->t_us, r->a / 100.0f, r->b); break;
             default: break;
         }
         if ((i & 255) == 0) {
             watchdog_update();
         }
     }
+    // events: F = failsafe started (rssi/lq = last link stats, fs_reasons = FAILSAFE_REASON_* bits:
+    // 1 link LQ/RSSI, 2 RC timeout; fs_ms = time since the last RC frame), f = failsafe cleared
+    // (fs_ms = how long it lasted), W = this run followed a watchdog reboot
+    for (uint32_t i = 0; i < n_events; i++) {
+        const log_event_t* e = &ev[i];
+        switch (e->kind) {
+            case 'F':
+                printf("F,%lu,%u,%u,,,,,,,,,%u,%lu\n", (unsigned long)e->t_us, e->rssi, e->lq, e->reasons,
+                    (unsigned long)(e->value_us / 1000));
+                break;
+            case 'f': printf("f,%lu,,,,,,,,,,,,%lu\n", (unsigned long)e->t_us, (unsigned long)(e->value_us / 1000)); break;
+            case 'W': printf("W,%lu,,,,,,,,,,,,\n", (unsigned long)e->t_us); break;
+            default: break;
+        }
+    }
     printf("# END\n");
 }
 
 static void print_status(void) {
-    printf("LOGGER RAM: %lu records (%lu dropped), %s | flash: ",
-        (unsigned long)log_count, (unsigned long)log_dropped, have_unsaved ? "unsaved" : "saved");
+    printf("LOGGER RAM: %lu records (%lu dropped), %lu events, %s | flash: ",
+        (unsigned long)log_count, (unsigned long)log_dropped, (unsigned long)event_count,
+        have_unsaved ? "unsaved" : "saved");
     if (saved_log_valid()) {
-        printf("%lu records\n", (unsigned long)saved_header()->record_count);
+        printf("%lu records, %lu events\n", (unsigned long)saved_header()->record_count, (unsigned long)saved_event_count());
     } else {
         printf("empty\n");
     }
@@ -195,6 +283,23 @@ void logger_update(bot_state_t* bot_state, bool live, bool killed) {
     }
     uint64_t now = time_us_64();
 
+    // failsafe transitions, logged while a run is in progress (live, or ended but not saved yet).
+    // Checked before the live branch so the onset is seen while recording is still true.
+    bool failsafed = bot_state->is_failsafed;
+    if (failsafed != prev_failsafed) {
+        bool run_active = recording || have_unsaved;
+        if (failsafed) {
+            failsafe_start_us = now;
+            if (run_active) {
+                push_event(now, 'F', receiver_failsafe_reasons(), receiver_rc_frame_age_us());
+            }
+        } else if (run_active && failsafe_start_us != 0) {
+            uint64_t len = now - failsafe_start_us;
+            push_event(now, 'f', 0, len > UINT32_MAX ? UINT32_MAX : (uint32_t)len);
+        }
+        prev_failsafed = failsafed;
+    }
+
     if (live) {
         if (!recording) {
             if (!have_unsaved) {
@@ -202,9 +307,15 @@ void logger_update(bot_state_t* bot_state, bool live, bool killed) {
                 log_head = 0;
                 log_count = 0;
                 log_dropped = 0;
+                event_count = 0;
+                events_dropped = 0;
                 run_start_us = now;
                 last_status_us = 0;
                 last_rssi_rpm_us = 0;
+                if (boot_after_watchdog) {
+                    push_event(now, 'W', 0, 0);
+                    boot_after_watchdog = false;
+                }
             }
             // otherwise the bot went live again before saving, so keep extending the same run
             recording = true;

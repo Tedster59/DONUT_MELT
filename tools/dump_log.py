@@ -51,7 +51,7 @@ def download(port, out_path, timeout_s=60):
                 continue  # skip LINK diagnostics or other output before the dump
             if line == "# END":
                 break
-            if line and (line[0] in "RAPDC" or line.startswith("kind,")):
+            if line and (line[0] in "RAPDCFfW" or line.startswith("kind,")):
                 lines.append(line)
                 deadline = time.time() + 5  # keep going while data flows
         else:
@@ -60,6 +60,33 @@ def download(port, out_path, timeout_s=60):
     with open(out_path, "w", newline="") as f:
         f.write("\n".join(lines) + "\n")
     print(f"Wrote {len(lines) - 1} records to {out_path}")
+
+
+FAILSAFE_REASONS = {1: "link LQ/RSSI", 2: "RC timeout"}
+
+
+def read_events(path):
+    """Failsafe / reboot events (F, f, W rows) as (t_s, kind, row)."""
+    with open(path) as f:
+        return [(int(r["t_us"]) / 1e6, r["kind"], r) for r in csv.DictReader(f) if r["kind"] in ("F", "f", "W")]
+
+
+def describe_event(kind, row):
+    if kind == "W":
+        return "run started after a WATCHDOG REBOOT (the previous run's RAM log was lost)"
+    if kind == "f":
+        return f"failsafe cleared after {row['fs_ms']} ms"
+    bits = int(row["fs_reasons"] or 0)
+    why = " + ".join(name for bit, name in FAILSAFE_REASONS.items() if bits & bit) or "unknown"
+    return f"FAILSAFE: {why} (last RC frame {row['fs_ms']} ms ago, rssi -{row['rssi']} dBm, lq {row['lq']}%)"
+
+
+def print_events(path):
+    events = read_events(path)
+    if not events:
+        print("No failsafe events.")
+    for t, kind, row in events:
+        print(f"  {t:8.3f} s  {describe_event(kind, row)}")
 
 
 def plot(path):
@@ -122,6 +149,15 @@ def plot(path):
                 start = None
         if start is not None:
             ax.axvspan(start, d_t[-1], color="red", alpha=0.08, lw=0)
+
+    # failsafe start (red) / end (green) and watchdog reboots (black)
+    colors = {"F": "red", "f": "green", "W": "black"}
+    for t, kind, row in read_events(path):
+        for ax in axes:
+            ax.axvline(t, color=colors[kind], ls="--", lw=1)
+        if kind == "F":
+            axes[0].annotate(describe_event(kind, row).split(" (")[0], (t, 1), xycoords=("data", "axes fraction"),
+                             rotation=90, va="top", ha="right", fontsize=8, color="red")
     fig.tight_layout()
     plt.show()
 
@@ -135,6 +171,7 @@ def main():
     args = ap.parse_args()
 
     if args.plot_only:
+        print_events(args.plot_only)
         plot(args.plot_only)
         return
     port = args.port or find_pico_port()
@@ -142,6 +179,7 @@ def main():
 
     out = args.out or datetime.datetime.now().strftime("donut_log_%Y%m%d_%H%M%S.csv")
     download(port, out)
+    print_events(out)
     if args.plot:
         plot(out)
 
