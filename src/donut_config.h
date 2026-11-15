@@ -69,6 +69,14 @@ uint8_t donut_get_curr_drive_mode();
 // ~20ms at the slowest 50Hz ELRS rate). Catches a receiver that stops talking without reporting low LQ.
 #define RECEIVER_RC_TIMEOUT_US 100000
 
+// the killswitch (CH5) has to read the other way continuously for this long before it takes effect,
+// in either direction. A single bad RC frame mid-spin otherwise kills the bot, and the kill latches
+// require_zero_throttle, so it stays dead until the stick comes back to zero (seen in testing: a
+// mid-spin cut with no failsafe and the switch untouched). 50ms is ~50 frames at 1kHz (2-3 at
+// 50Hz), and nothing next to a multi-second spindown.
+// Filtered glitches are logged as G events.
+#define KILLSWITCH_DEBOUNCE_MS 50
+
 //----------END REICEVER SETTINGS----------
 
 

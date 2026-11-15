@@ -66,8 +66,48 @@ static accelerometer_t accel_2 = {
     // every packet. Live = high so ELRS's armed state matches the bot actually running
     // (dynamic power, Race telemetry, etc.). Anything that isn't clearly high, including
     // the all-zero channels before the first RC frame arrives, counts as killed.
-    uint8_t donut_is_killswitch_active() {
+    static bool killswitch_raw_active() {
         return !receiver_is_channel_near_value(SWITCH_E, RECEIVER_HIGHEST_CHANNEL_VALUE, 50);
+    }
+
+    // Debounced killswitch: the raw reading has to disagree with the current state for
+    // KILLSWITCH_DEBOUNCE_MS before it takes effect, so one bad RC frame can neither kill a spinning
+    // bot nor arm a killed one. (If RC frames stop arriving altogether, RECEIVER_RC_TIMEOUT_US
+    // failsafes instead, so stale channels can't hold the bot live.)
+    static bool killswitch_active = true;            // boots killed
+    static uint64_t killswitch_pending_since_us = 0; // 0 = raw reading agrees with killswitch_active
+    static uint16_t killswitch_pending_ch5 = 0;      // CH5 when the disagreement started
+
+    static void killswitch_update() {
+        uint64_t now = time_us_64();
+        bool raw = killswitch_raw_active();
+        if (raw == killswitch_active) {
+            if (killswitch_pending_since_us != 0) {
+                // flipped back before the debounce ran out: a glitch, filtered
+                #ifdef USE_FLASH_LOGGER
+                    logger_log_event('G', killswitch_active ? LOG_GLITCH_READ_ARMED : LOG_GLITCH_READ_KILLED,
+                        (uint32_t)(now - killswitch_pending_since_us), killswitch_pending_ch5);
+                #endif
+                killswitch_pending_since_us = 0;
+            }
+            return;
+        }
+        if (killswitch_pending_since_us == 0) {
+            killswitch_pending_since_us = now;
+            killswitch_pending_ch5 = receiver_get_channel(SWITCH_E);
+            return;
+        }
+        if (now - killswitch_pending_since_us >= (uint64_t)KILLSWITCH_DEBOUNCE_MS * 1000) {
+            killswitch_active = raw;
+            #ifdef USE_FLASH_LOGGER
+                logger_log_event(raw ? 'K' : 'k', 0, (uint32_t)(now - killswitch_pending_since_us), killswitch_pending_ch5);
+            #endif
+            killswitch_pending_since_us = 0;
+        }
+    }
+
+    uint8_t donut_is_killswitch_active() {
+        return killswitch_active;
     }
 
     uint8_t donut_get_curr_drive_mode() {
@@ -190,6 +230,7 @@ void always() {
         #endif
 
         receiver_update();
+        killswitch_update();
         rssi_rpm_update();
 
         #if defined(RSSI_LINK_DIAGNOSTICS) || defined(RSSI_RAW_DUMP)

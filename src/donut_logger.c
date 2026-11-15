@@ -6,7 +6,8 @@
 #include "donut_flash.h"
 
 #define LOG_MAGIC 0x474F4C44u // "DLOG"
-#define LOG_VERSION 2 // v2: failsafe event list after the header (v1 logs still dump, without events)
+#define LOG_VERSION 3 // v2: failsafe event list after the header (v1 logs still dump, without events)
+                      // v3: events gain a ch5 field (v2 events still dump, with ch5 blank)
 
 typedef struct __attribute__((packed)) {
     uint32_t t_us;  // microseconds since the run started
@@ -31,12 +32,26 @@ typedef struct {
 // first 81 s, including the failsafe it was meant to explain). The first LOG_MAX_EVENTS are kept.
 typedef struct __attribute__((packed)) {
     uint32_t t_us;      // microseconds since the run started
-    char kind;          // 'F' failsafe started, 'f' failsafe cleared, 'W' this run followed a watchdog reboot
-    uint8_t reasons;    // F: FAILSAFE_REASON_* bits
-    uint8_t lq;         // F: last link stats link quality %
-    uint8_t rssi;       // F: last link stats RSSI (-dBm)
+    char kind;          // 'F' failsafe started, 'f' failsafe cleared, 'W' this run followed a watchdog reboot,
+                        // 'L' stopped being live, 'l' live again, 'K' killswitch on, 'k' killswitch off,
+                        // 'G' CH5 glitch filtered by the killswitch debounce
+    uint8_t reasons;    // F: FAILSAFE_REASON_* bits   L: LOG_CUT_* bits   G: LOG_GLITCH_* (which way it read)
+    uint8_t lq;         // last link stats link quality %
+    uint8_t rssi;       // last link stats RSSI (-dBm)
     uint32_t value_us;  // F: time since the last RC frame   f: how long the failsafe lasted
+                        // l: how long the bot was not live   K/k: how long CH5 read that way first
+                        // G: how long the glitch lasted
+    uint16_t ch5;       // raw CH5 (killswitch): K/k/G = when the new reading started, others = when logged
 } log_event_t;
+
+typedef struct __attribute__((packed)) {
+    uint32_t t_us;
+    char kind;
+    uint8_t reasons;
+    uint8_t lq;
+    uint8_t rssi;
+    uint32_t value_us;
+} log_event_v2_t; // what v2 firmware saved, so dump_saved_log can still read it
 
 #define LOG_MAX_EVENTS 64
 #define LOG_EVENTS_OFFSET (LOGGER_FLASH_OFFSET + FLASH_PAGE_SIZE) // rest of the header sector
@@ -72,6 +87,8 @@ static log_event_t events[LOG_MAX_EVENTS];
 static uint32_t event_count = 0;
 static uint32_t events_dropped = 0;
 static bool prev_failsafed = true;     // the bot boots failsafed, which isn't an event
+static bool prev_live = false;
+static uint64_t not_live_since_us = 0;
 static uint64_t failsafe_start_us = 0;
 static bool boot_after_watchdog = false;
 static uint8_t last_lq = 0;
@@ -83,7 +100,7 @@ static const log_header_t* saved_header(void) {
 
 static bool saved_log_valid(void) {
     const log_header_t* h = saved_header();
-    return h->magic == LOG_MAGIC && (h->version == 1 || h->version == LOG_VERSION) &&
+    return h->magic == LOG_MAGIC && h->version >= 1 && h->version <= LOG_VERSION &&
            h->record_size == LOG_RECORD_SIZE && h->record_count <= LOG_MAX_RECORDS;
 }
 
@@ -95,7 +112,7 @@ static uint32_t saved_event_count(void) {
     return h->event_count;
 }
 
-static void push_event(uint64_t now_us, char kind, uint8_t reasons, uint32_t value_us) {
+static void push_event(uint64_t now_us, char kind, uint8_t reasons, uint32_t value_us, uint16_t ch5) {
     if (event_count == LOG_MAX_EVENTS) {
         events_dropped++; // keep the first ones: the first failsafe is usually the interesting one
         return;
@@ -107,8 +124,21 @@ static void push_event(uint64_t now_us, char kind, uint8_t reasons, uint32_t val
         .lq = last_lq,
         .rssi = last_rssi,
         .value_us = value_us,
+        .ch5 = ch5,
     };
     have_unsaved = true;
+}
+
+// a run is in progress: live, or ended but not saved yet
+static bool run_active(void) {
+    return recording || have_unsaved;
+}
+
+void logger_log_event(char kind, uint8_t reasons, uint32_t value_us, uint16_t ch5) {
+    if (disabled || !run_active()) {
+        return;
+    }
+    push_event(time_us_64(), kind, reasons, value_us, ch5);
 }
 
 static void push_record(uint64_t now_us, char kind, uint8_t a, uint16_t b) {
@@ -210,41 +240,49 @@ static void dump_saved_log(void) {
     const log_record_t* records = (const log_record_t*)donut_flash_read_ptr(LOG_DATA_OFFSET);
 
     uint32_t n_events = saved_event_count();
-    const log_event_t* ev = (const log_event_t*)donut_flash_read_ptr(LOG_EVENTS_OFFSET);
+    const uint8_t* ev_base = (const uint8_t*)donut_flash_read_ptr(LOG_EVENTS_OFFSET);
 
     printf("# DONUT_LOG v%lu records=%lu dropped=%lu events=%lu events_dropped=%lu\n",
         (unsigned long)h->version, (unsigned long)h->record_count, (unsigned long)h->dropped,
         (unsigned long)n_events, (unsigned long)(h->version >= 2 ? h->events_dropped : 0));
-    // 14 columns; every row prints all of them
-    printf("kind,t_us,rssi,lq,throttle_pct,accel_rpm,rssi_rpm,confidence,rssi_state,drive_rpm,correction,accel_rpm_corrected,fs_reasons,fs_ms\n");
+    // 15 columns; every row prints all of them
+    printf("kind,t_us,rssi,lq,throttle_pct,accel_rpm,rssi_rpm,confidence,rssi_state,drive_rpm,correction,accel_rpm_corrected,fs_reasons,fs_ms,ch5\n");
     for (uint32_t i = 0; i < h->record_count; i++) {
         const log_record_t* r = &records[i];
         switch (r->kind) {
-            case 'R': printf("R,%lu,%u,%u,,,,,,,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
-            case 'A': printf("A,%lu,,,%u,%u,,,,,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
-            case 'P': printf("P,%lu,,,,,%u,%.2f,,,,,,\n", (unsigned long)r->t_us, r->b, r->a / 100.0f); break;
-            case 'D': printf("D,%lu,,,,,,,%u,%u,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
-            case 'C': printf("C,%lu,,,,,,,,,%.2f,%u,,\n", (unsigned long)r->t_us, r->a / 100.0f, r->b); break;
+            case 'R': printf("R,%lu,%u,%u,,,,,,,,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
+            case 'A': printf("A,%lu,,,%u,%u,,,,,,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
+            case 'P': printf("P,%lu,,,,,%u,%.2f,,,,,,,\n", (unsigned long)r->t_us, r->b, r->a / 100.0f); break;
+            case 'D': printf("D,%lu,,,,,,,%u,%u,,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
+            case 'C': printf("C,%lu,,,,,,,,,%.2f,%u,,,\n", (unsigned long)r->t_us, r->a / 100.0f, r->b); break;
             default: break;
         }
         if ((i & 255) == 0) {
             watchdog_update();
         }
     }
-    // events: F = failsafe started (rssi/lq = last link stats, fs_reasons = FAILSAFE_REASON_* bits:
-    // 1 link LQ/RSSI, 2 RC timeout; fs_ms = time since the last RC frame), f = failsafe cleared
-    // (fs_ms = how long it lasted), W = this run followed a watchdog reboot
+    // events (see log_event_t): F/f failsafe start/end, W watchdog reboot, L/l live lost/regained,
+    // K/k killswitch on/off, G killswitch glitch filtered. fs_reasons = the event's reason bits,
+    // fs_ms = its value_us in ms, ch5 = raw killswitch channel (blank for v2 logs)
     for (uint32_t i = 0; i < n_events; i++) {
-        const log_event_t* e = &ev[i];
-        switch (e->kind) {
-            case 'F':
-                printf("F,%lu,%u,%u,,,,,,,,,%u,%lu\n", (unsigned long)e->t_us, e->rssi, e->lq, e->reasons,
-                    (unsigned long)(e->value_us / 1000));
-                break;
-            case 'f': printf("f,%lu,,,,,,,,,,,,%lu\n", (unsigned long)e->t_us, (unsigned long)(e->value_us / 1000)); break;
-            case 'W': printf("W,%lu,,,,,,,,,,,,\n", (unsigned long)e->t_us); break;
-            default: break;
+        log_event_t e;
+        if (h->version >= 3) {
+            memcpy(&e, ev_base + i * sizeof(log_event_t), sizeof(e));
+        } else {
+            log_event_v2_t old;
+            memcpy(&old, ev_base + i * sizeof(log_event_v2_t), sizeof(old));
+            e = (log_event_t){ .t_us = old.t_us, .kind = old.kind, .reasons = old.reasons, .lq = old.lq,
+                               .rssi = old.rssi, .value_us = old.value_us, .ch5 = UINT16_MAX };
         }
+        if (e.kind == 0 || strchr("FfWLlKkG", e.kind) == NULL) {
+            continue;
+        }
+        printf("%c,%lu,%u,%u,,,,,,,,,%u,%.1f,", e.kind, (unsigned long)e.t_us, e.rssi, e.lq, e.reasons,
+            e.value_us / 1000.0f);
+        if (e.ch5 != UINT16_MAX) {
+            printf("%u", e.ch5);
+        }
+        printf("\n");
     }
     printf("# END\n");
 }
@@ -287,17 +325,35 @@ void logger_update(bot_state_t* bot_state, bool live, bool killed) {
     // Checked before the live branch so the onset is seen while recording is still true.
     bool failsafed = bot_state->is_failsafed;
     if (failsafed != prev_failsafed) {
-        bool run_active = recording || have_unsaved;
+        uint16_t ch5 = receiver_get_channel(SWITCH_E);
         if (failsafed) {
             failsafe_start_us = now;
-            if (run_active) {
-                push_event(now, 'F', receiver_failsafe_reasons(), receiver_rc_frame_age_us());
+            if (run_active()) {
+                push_event(now, 'F', receiver_failsafe_reasons(), receiver_rc_frame_age_us(), ch5);
             }
-        } else if (run_active && failsafe_start_us != 0) {
+        } else if (run_active() && failsafe_start_us != 0) {
             uint64_t len = now - failsafe_start_us;
-            push_event(now, 'f', 0, len > UINT32_MAX ? UINT32_MAX : (uint32_t)len);
+            push_event(now, 'f', 0, len > UINT32_MAX ? UINT32_MAX : (uint32_t)len, ch5);
         }
         prev_failsafed = failsafed;
+    }
+
+    // live transitions, whatever the cause. By the time this runs, when_failsafe_on() has already
+    // latched require_zero_throttle, so that isn't a reason here: it only ever keeps the bot down
+    // after a failsafe or the killswitch cut it. Reasons 0 = neither (shouldn't happen).
+    if (live != prev_live) {
+        uint16_t ch5 = receiver_get_channel(SWITCH_E);
+        if (!live) {
+            not_live_since_us = now;
+            if (run_active()) {
+                uint8_t why = (bot_state->is_failsafed ? LOG_CUT_FAILSAFE : 0) | (killed ? LOG_CUT_KILLSWITCH : 0);
+                push_event(now, 'L', why, 0, ch5);
+            }
+        } else if (run_active() && not_live_since_us != 0) {
+            uint64_t len = now - not_live_since_us;
+            push_event(now, 'l', 0, len > UINT32_MAX ? UINT32_MAX : (uint32_t)len, ch5);
+        }
+        prev_live = live;
     }
 
     if (live) {
@@ -313,7 +369,7 @@ void logger_update(bot_state_t* bot_state, bool live, bool killed) {
                 last_status_us = 0;
                 last_rssi_rpm_us = 0;
                 if (boot_after_watchdog) {
-                    push_event(now, 'W', 0, 0);
+                    push_event(now, 'W', 0, 0, receiver_get_channel(SWITCH_E));
                     boot_after_watchdog = false;
                 }
             }

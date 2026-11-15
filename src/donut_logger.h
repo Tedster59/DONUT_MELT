@@ -21,4 +21,17 @@ void logger_log_rssi(uint64_t timestamp_us, uint8_t rssi, uint8_t link_quality);
 // call every main loop. live = motors may be driven; killed = killswitch active.
 void logger_update(bot_state_t* bot_state, bool live, bool killed);
 
+// G event reasons: which way the raw killswitch reading glitched
+#define LOG_GLITCH_READ_KILLED 1 // CH5 read killed while armed
+#define LOG_GLITCH_READ_ARMED 2  // CH5 read armed while killed
+
+// L event reasons: why the bot stopped being live
+#define LOG_CUT_FAILSAFE 1
+#define LOG_CUT_KILLSWITCH 2
+
+// an event from outside the logger (kinds: 'K' killswitch on, 'k' killswitch off, 'G' CH5 glitch
+// filtered by the debounce). Kept only while a run is in progress, like failsafe events.
+// value_us: K/k = how long CH5 read that way before it took effect, G = how long the glitch lasted.
+void logger_log_event(char kind, uint8_t reasons, uint32_t value_us, uint16_t ch5);
+
 #endif
