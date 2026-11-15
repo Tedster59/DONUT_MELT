@@ -32,11 +32,11 @@
 // V3.1.1 board 3: 1x = -1.78, 1y = -0.88, 2x = -1.80, 2y = -0.87
 // V3.1.1 board 4: 1x = -2.73, 1y = -2.61, 2x = -2.73, 2y = -2.61
 
-#define ACCEL_1_X_OFFSET -2.11
-#define ACCEL_1_Y_OFFSET -1.12
+#define ACCEL_1_X_OFFSET -3.61
+#define ACCEL_1_Y_OFFSET -4.33
 
-#define ACCEL_2_X_OFFSET -2.08
-#define ACCEL_2_Y_OFFSET -1.21
+#define ACCEL_2_X_OFFSET -3.59
+#define ACCEL_2_Y_OFFSET -4.31
 
 
 #define THROTTLE_PC_P 0.8 // was 0.5 for working translation test with 1lb on 4/29/26 - Cai
