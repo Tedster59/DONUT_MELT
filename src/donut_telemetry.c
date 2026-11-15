@@ -181,7 +181,7 @@ void telemetry_send_telemetry(bot_state_t* bot_state) {
             {
                 // RSSI page (SWITCH_F high), shown in the battery sensor fields:
                 //   Volt = RSSI state: 0.0 unlocked (on accel), 1.0 locked in shadow mode, 2.0 locked and driving
-                //   Curr = confidence in % (45.0 = 0.45; RSSI_RPM_MIN_CONFIDENCE is the lock threshold)
+                //   Curr = confidence in % (45.0 = 0.45; locks at RSSI_RPM_MIN_CONFIDENCE, i.e. 20.0)
                 //   Capa = RSSI rpm (0 when there is no estimate)
                 //   Fuel = 1 (page number)
                 // With USE_RSSI_RPM on, Volt 0.0 means the drive has fallen back to the accelerometer.

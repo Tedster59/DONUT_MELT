@@ -1,6 +1,8 @@
 # RSSI RPM tracking (3lb)
 
-The 3lb bot can measure its RPM from the radio link instead of the accelerometers. As the bot spins, the receiver antenna's pattern sweeps past the transmitter, so the uplink RSSI rises and falls once per rotation (`RSSI_RPM_HARMONIC`). The estimator in `src/donut_rssi_rpm.c` finds that frequency.
+The 3lb bot can measure its RPM from the radio link instead of the accelerometers. As the bot spins, the receiver antenna's pattern sweeps past the transmitter, so the uplink RSSI repeats once per rotation. The estimator in `src/donut_rssi_rpm.c` finds that frequency.
+
+The repeating pattern isn't a sine wave. In the first spin log (`first_spin.csv`), the 3rd harmonic of the rotation carried about twice the power of the fundamental, and the fundamental held under 10% of the RSSI signal's energy. So the estimator scores each candidate RPM by the **summed power of its first 4 harmonics**.
 
 The accelerometer stays in the loop for three jobs:
 - It gives the RSSI search its starting point.
@@ -18,13 +20,16 @@ Check on the bench with `RSSI_LINK_DIAGNOSTICS` enabled. The USB `LINK` line sho
 ## How it works
 
 1. Each link stats frame is timestamped on arrival and interpolated onto a 1 kHz grid.
-2. Every 50 ms, a Hann-windowed Goertzel scan of the last 512 ms of RSSI searches ±30% (`RSSI_RPM_SEARCH_FRACTION`) around the **curve-corrected** accelerometer RPM.
-3. The peak's **confidence** ranges from about 1.0 (a pure tone) to near 0 (noise). An estimate counts as **locked** when all three hold:
-   - confidence ≥ `RSSI_RPM_MIN_CONFIDENCE` (0.25)
+2. Every 50 ms, a new estimate starts from the last 512 ms of RSSI (Hann-windowed). It searches 48 candidate frequencies across ±30% (`RSSI_RPM_SEARCH_FRACTION`) around the **curve-corrected** accelerometer RPM, scoring each by the Goertzel power at f, 2f, 3f and 4f (`RSSI_RPM_NUM_HARMONICS`). It evaluates one candidate per main loop, so the loop never stalls long enough to drop CRSF bytes. A full scan takes about 50 loops.
+3. The best candidate's **confidence** is the fraction of the RSSI signal's energy in its harmonics: about 1.0 when the rotation explains all of it, near 0 for noise. An estimate counts as **locked** when all four hold:
+   - confidence ≥ `RSSI_RPM_MIN_CONFIDENCE` (0.20)
    - the peak is not on the edge of the search band
+   - the peak isn't itself a harmonic. If half or a third of its frequency scores at least `RSSI_RPM_MAX_SUBHARMONIC_RATIO` (0.8) of its power, the real rotation is slower, and the estimate is rejected.
    - the estimate is younger than `RSSI_RPM_MAX_AGE_US` (200 ms)
 
-The seed must be the *corrected* accel RPM. If the curve factor is outside about 0.7 to 1.3, the real RPM falls outside the search band of the raw accel RPM, and RSSI can never lock.
+These settings come from replaying `first_spin.csv`. While powered, it was locked 99.6% of the time and stayed within 5% of the accelerometer. During a coast-down with a stale search centre, it produced no false locks.
+
+The search centre must be the *corrected* accel RPM. If the curve factor is outside about 0.7 to 1.3, the real RPM falls outside the search band of the raw accel RPM, and RSSI can never lock.
 
 ## Modes
 
@@ -54,7 +59,7 @@ The values arrive as the battery sensor fields:
 | Field | Shows |
 |---|---|
 | Volt | RSSI state: `0.0` / `1.0` / `2.0` |
-| Curr | Confidence in %, e.g. `45.0` = 0.45. The lock threshold is `25.0`. |
+| Curr | Confidence in %, e.g. `45.0` = 0.45. The lock threshold is `20.0`. |
 | Capa | RSSI RPM, or 0 with no estimate |
 | Fuel | `1` (page number) |
 
@@ -167,7 +172,7 @@ Hold CH10 for 3 s while killed to clear the curve.
 ## Suggested test sequence
 
 1. **Bench:** check that `LINK` shows ~1000 Hz link stats.
-2. **Shadow spins:** spin at several speeds. On the transmitter, check that Volt reaches `1.0` and confidence stays well above `25.0`. Dump the log and check that the RSSI dots follow the corrected accel line. If RSSI reads half or double, `RSSI_RPM_HARMONIC` is wrong.
+2. **Shadow spins:** spin at several speeds. On the transmitter, check that Volt reaches `1.0` and confidence stays above `20.0`; the first spin log suggests about 35–45. Dump the log and check that the RSSI dots follow the corrected accel line.
 3. **Calibrate:** save RSSI curve points at 3 or 4 steady speeds as described above. Heading drift on the accelerometer should get visibly smaller.
 4. **Drive on RSSI:** enable `USE_RSSI_RPM`. Steady arc and Volt `2.0` mean RSSI is driving. A strobing arc and Volt `0.0` mean it has fallen back. The red bands in the log show where.
 
@@ -176,9 +181,10 @@ Hold CH10 for 3 s while killed to clear the curve.
 | Define | Default | Effect |
 |---|---|---|
 | `RSSI_RPM_SEARCH_FRACTION` | 0.3 | Search band around the corrected accel RPM |
-| `RSSI_RPM_MIN_CONFIDENCE` | 0.25 | Lock threshold |
-| `RSSI_RPM_MAX_AGE_US` | 200000 | How long a lock outlives its last good estimate |
-| `RSSI_RPM_HARMONIC` | 1 | RSSI cycles per rotation |
+| `RSSI_RPM_MIN_CONFIDENCE` | 0.20 | Lock threshold |
+| `RSSI_RPM_NUM_HARMONICS` | 4 | Harmonics summed per candidate frequency |
+| `RSSI_RPM_MAX_SUBHARMONIC_RATIO` | 0.8 | Rejects peaks that are harmonics of a slower rotation || `RSSI_RPM_MAX_AGE_US` | 200000 | How long a lock outlives its last good estimate |
+| `RSSI_RPM_HARMONIC` | 1 | RSSI cycles per rotation of the fundamental. Leave at 1: the harmonic sum handles multi-lobe patterns. |
 | `RSSI_RPM_MIN_SEED_RPM` | 300 | No search below this accel RPM |
 | `RSSI_RPM_FALLBACK_LED_STROBE_US` | 80000 | Fallback LED strobe period; comment out to disable |
 | `RPM_CURVE_SAVE_FROM_RSSI` | defined | CH10 saves the measured factor when available |

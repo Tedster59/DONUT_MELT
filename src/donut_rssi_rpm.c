@@ -20,8 +20,26 @@ static float raw_last_rssi = 0;
 // ---------- estimator state ----------
 static float window[RSSI_RPM_BUF_SIZE];        // Hann window
 static float work[RSSI_RPM_BUF_SIZE];          // detrended + windowed copy of the grid
-static float band_power[RSSI_RPM_SEARCH_STEPS];
-static float tone_norm;                        // scales peak power so a pure tone scores ~1.0
+static float band_power[RSSI_RPM_SEARCH_STEPS]; // harmonic-sum power per candidate frequency
+static float tone_norm;                        // scales power so a signal entirely in the summed harmonics scores ~1.0
+
+// The scan is spread over many main loop calls (one candidate frequency per call) so no single
+// call stalls the loop long enough to overflow the CRSF UART FIFO or jitter the motor timing.
+typedef enum {
+    SCAN_IDLE,         // waiting for the next RSSI_RPM_UPDATE_INTERVAL_US tick
+    SCAN_BAND,         // evaluating band_power[scan_k]
+    SCAN_SUB_HALF,     // harmonic-sum power at half the best frequency
+    SCAN_SUB_THIRD,    // ... and at a third of it
+} scan_phase_t;
+
+static scan_phase_t scan_phase = SCAN_IDLE;
+static uint64_t scan_start_us;  // when the window in work[] was captured
+static int scan_k;
+static int scan_best;
+static float scan_lo_hz;
+static float scan_step_hz;
+static float scan_energy;
+static float scan_sub_power;    // max harmonic-sum power at best/2 and best/3
 
 static uint64_t last_update_us = 0;
 static uint64_t last_valid_us = 0;
@@ -63,7 +81,9 @@ void rssi_rpm_init(bot_state_t* user_bot_state) {
         sum_w2 += window[i] * window[i];
     }
     // For x = A*cos(wt) windowed by w: peak power ~= (A/2 * sum_w)^2, energy ~= A^2/2 * sum_w2.
-    // power/energy * tone_norm is therefore ~1 for a pure tone and ~3/N for white noise.
+    // power/energy * tone_norm is therefore ~1 for a pure tone and ~3/N for white noise. Summing
+    // RSSI_RPM_NUM_HARMONICS harmonics, it is ~1 when all the energy is in those harmonics and
+    // ~3*H/N for white noise.
     tone_norm = 2.0f * sum_w2 / (sum_w * sum_w);
 
     grid_reset();
@@ -111,6 +131,24 @@ static float goertzel_power(const float* x, int n, float omega) {
     return s1 * s1 + s2 * s2 - coeff * s1 * s2;
 }
 
+#define SAMPLE_RATE_HZ (1000000.0f / RSSI_RPM_GRID_INTERVAL_US)
+
+// summed power of work[] at f, 2f, ... RSSI_RPM_NUM_HARMONICS * f (harmonics at or above
+// Nyquist are skipped). The spinning antenna's RSSI pattern isn't a sine: on the 3lb the 3rd
+// harmonic carries about twice the power of the fundamental, so the fundamental alone holds
+// under 10% of the RSSI energy and could never reach a useful confidence.
+static float harmonic_power(float f_hz) {
+    float total = 0;
+    for (int m = 1; m <= RSSI_RPM_NUM_HARMONICS; m++) {
+        float fm = f_hz * m;
+        if (fm >= 0.49f * SAMPLE_RATE_HZ) {
+            break;
+        }
+        total += goertzel_power(work, RSSI_RPM_BUF_SIZE, 2.0f * (float)M_PI * fm / SAMPLE_RATE_HZ);
+    }
+    return total;
+}
+
 // a calibration point is only taken when the speed was steady across the whole RSSI window: the
 // RSSI estimate averages ~0.5 s, the accel rpm only a few rotations, so during a spin-up the two
 // would be measuring different speeds
@@ -143,13 +181,9 @@ static void publish(uint32_t rpm, float confidence) {
     _user_bot_state->rssi_rpm_confidence = confidence;
 }
 
-void rssi_rpm_update(void) {
-    uint64_t now = time_us_64();
-    if (now - last_update_us < RSSI_RPM_UPDATE_INTERVAL_US) {
-        return;
-    }
-    last_update_us = now;
-
+// captures the current RSSI window into work[] and sets up the band scan.
+// Returns false (after publishing "no estimate") when there is nothing to scan.
+static bool start_scan(uint64_t now) {
     accel_hist[accel_hist_head] = (float)_user_bot_state->rpm;
     accel_hist_head = (accel_hist_head + 1) % CAL_HISTORY;
     if (accel_hist_count < CAL_HISTORY) {
@@ -159,7 +193,7 @@ void rssi_rpm_update(void) {
     // need a full, current window of history
     if (grid_count < RSSI_RPM_BUF_SIZE || now - grid_last_ts > RSSI_RPM_MAX_GAP_US) {
         publish(0, 0);
-        return;
+        return false;
     }
 
     // starting point from the accelerometer. Use the curve-corrected rpm: bot_state->rpm is the raw
@@ -168,7 +202,7 @@ void rssi_rpm_update(void) {
     double seed_rpm = _user_bot_state->rpm * (double)_user_bot_state->rpm_correction;
     if (seed_rpm < RSSI_RPM_MIN_SEED_RPM) {
         publish(0, 0);
-        return;
+        return false;
     }
 
     // copy oldest -> newest, remove the mean (DC) and apply the window
@@ -186,28 +220,34 @@ void rssi_rpm_update(void) {
     }
     if (energy <= 0) {
         publish(0, 0); // perfectly flat RSSI, nothing to find
-        return;
+        return false;
     }
 
     // search seed * (1 +/- RSSI_RPM_SEARCH_FRACTION), in RSSI cycles per second
-    float sample_rate_hz = 1000000.0f / RSSI_RPM_GRID_INTERVAL_US;
     float seed_hz = (float)(seed_rpm / 60.0) * RSSI_RPM_HARMONIC;
     float lo_hz = seed_hz * (1.0f - RSSI_RPM_SEARCH_FRACTION);
-    float hi_hz = fminf(seed_hz * (1.0f + RSSI_RPM_SEARCH_FRACTION), 0.49f * sample_rate_hz);
+    float hi_hz = fminf(seed_hz * (1.0f + RSSI_RPM_SEARCH_FRACTION), 0.49f * SAMPLE_RATE_HZ);
     if (hi_hz <= lo_hz) {
         publish(0, 0); // seed is above what the grid can represent
-        return;
+        return false;
     }
-    float step_hz = (hi_hz - lo_hz) / (RSSI_RPM_SEARCH_STEPS - 1);
 
-    int best = 0;
-    for (int k = 0; k < RSSI_RPM_SEARCH_STEPS; k++) {
-        float omega = 2.0f * (float)M_PI * (lo_hz + k * step_hz) / sample_rate_hz;
-        band_power[k] = goertzel_power(work, RSSI_RPM_BUF_SIZE, omega);
-        if (band_power[k] > band_power[best]) {
-            best = k;
-        }
-    }
+    scan_start_us = now;
+    scan_lo_hz = lo_hz;
+    scan_step_hz = (hi_hz - lo_hz) / (RSSI_RPM_SEARCH_STEPS - 1);
+    scan_energy = energy;
+    scan_k = 0;
+    scan_best = 0;
+    return true;
+}
+
+static float scan_freq(int k) {
+    return scan_lo_hz + k * scan_step_hz;
+}
+
+// all powers are in: pick the peak, apply the lock checks and publish
+static void finish_scan(void) {
+    int best = scan_best;
 
     // parabolic interpolation between search steps for sub-step resolution
     float offset = 0;
@@ -222,20 +262,62 @@ void rssi_rpm_update(void) {
         }
     }
 
-    float peak_hz = lo_hz + (best + offset) * step_hz;
+    float peak_hz = scan_lo_hz + (best + offset) * scan_step_hz;
     double rpm = peak_hz * 60.0 / RSSI_RPM_HARMONIC;
-    float confidence = band_power[best] / energy * tone_norm;
+    float confidence = band_power[best] / scan_energy * tone_norm;
 
     publish((uint32_t)rpm, confidence);
 
-    // a peak pinned to the band edge most likely means the real peak is outside the
-    // band (accel seed is off by more than RSSI_RPM_SEARCH_FRACTION), so don't trust it
-    if (!peak_on_edge && confidence >= RSSI_RPM_MIN_CONFIDENCE) {
-        bool prev_recent = last_valid_us != 0 && now - last_valid_us <= 2 * RSSI_RPM_UPDATE_INTERVAL_US;
+    // Lock checks:
+    // - a peak pinned to the band edge most likely means the real peak is outside the band
+    //   (accel seed is off by more than RSSI_RPM_SEARCH_FRACTION)
+    // - if half or a third of the peak frequency explains the RSSI about as well, the peak is a
+    //   harmonic of a slower real rotation (seen when the seed was stale during a coast-down)
+    bool is_harmonic = scan_sub_power >= RSSI_RPM_MAX_SUBHARMONIC_RATIO * band_power[best];
+    if (!peak_on_edge && !is_harmonic && confidence >= RSSI_RPM_MIN_CONFIDENCE) {
+        uint64_t t = scan_start_us;
+        bool prev_recent = last_valid_us != 0 && t - last_valid_us <= 2 * RSSI_RPM_UPDATE_INTERVAL_US;
         double prev_rpm = last_valid_rpm;
-        last_valid_us = now;
+        last_valid_us = t;
         last_valid_rpm = rpm;
-        update_calibration(now, rpm, prev_recent, prev_rpm);
+        update_calibration(t, rpm, prev_recent, prev_rpm);
+    }
+}
+
+void rssi_rpm_update(void) {
+    switch (scan_phase) {
+        case SCAN_IDLE: {
+            uint64_t now = time_us_64();
+            if (now - last_update_us < RSSI_RPM_UPDATE_INTERVAL_US) {
+                return;
+            }
+            last_update_us = now;
+            if (start_scan(now)) {
+                scan_phase = SCAN_BAND;
+            }
+            return;
+        }
+
+        case SCAN_BAND:
+            band_power[scan_k] = harmonic_power(scan_freq(scan_k));
+            if (band_power[scan_k] > band_power[scan_best]) {
+                scan_best = scan_k;
+            }
+            if (++scan_k == RSSI_RPM_SEARCH_STEPS) {
+                scan_phase = SCAN_SUB_HALF;
+            }
+            return;
+
+        case SCAN_SUB_HALF:
+            scan_sub_power = harmonic_power(scan_freq(scan_best) / 2.0f);
+            scan_phase = SCAN_SUB_THIRD;
+            return;
+
+        case SCAN_SUB_THIRD:
+            scan_sub_power = fmaxf(scan_sub_power, harmonic_power(scan_freq(scan_best) / 3.0f));
+            finish_scan();
+            scan_phase = SCAN_IDLE;
+            return;
     }
 }
 

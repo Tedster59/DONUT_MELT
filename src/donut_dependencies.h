@@ -27,7 +27,8 @@ typedef struct {
     float rpm_correction;
 
     // latest RSSI-based RPM estimate (0 when unavailable) and how tone-like the
-    // RSSI was at that frequency (~1.0 = pure sinusoid, near 0 = noise)
+    // RSSI was at that frequency and its harmonics (~1.0 = all the RSSI variation is the rotation,
+    // near 0 = noise)
     uint32_t rssi_rpm;
     float rssi_rpm_confidence;
 

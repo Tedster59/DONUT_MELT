@@ -80,12 +80,15 @@ uint8_t donut_get_curr_drive_mode();
 #define RSSI_RPM_GRID_INTERVAL_US 1000     // RSSI resample spacing: matches the 1kHz packet rate, Nyquist = 30000 RPM per RSSI cycle/rotation
 #define RSSI_RPM_BUF_SIZE 512              // grid samples analysed: 512 * 1ms = 512ms window
 #define RSSI_RPM_MAX_GAP_US 250000         // link stats gap that discards the history
-#define RSSI_RPM_UPDATE_INTERVAL_US 50000  // how often the estimate is recomputed (~0.1-0.2ms of CPU each)
+#define RSSI_RPM_UPDATE_INTERVAL_US 50000  // how often a new estimate is started (the scan then runs one frequency per main loop)
 #define RSSI_RPM_MIN_SEED_RPM 300          // don't search until the accel says we're spinning
 #define RSSI_RPM_SEARCH_FRACTION 0.3f      // search accel_rpm * (1 +/- this)
 #define RSSI_RPM_SEARCH_STEPS 48           // frequencies evaluated across that band
-#define RSSI_RPM_HARMONIC 1                // RSSI cycles per rotation (2 if the antenna pattern has two lobes)
-#define RSSI_RPM_MIN_CONFIDENCE 0.25f      // minimum confidence for get_rpm_rssi to trust the estimate
+#define RSSI_RPM_HARMONIC 1                // RSSI cycles per rotation of the fundamental (keep 1: the summed harmonics cover multi-lobe patterns)
+#define RSSI_RPM_NUM_HARMONICS 4           // power at f, 2f, 3f, 4f is summed per candidate (3lb RSSI: 3rd harmonic is the strongest)
+#define RSSI_RPM_MIN_CONFIDENCE 0.20f      // minimum confidence for get_rpm_rssi to trust the estimate
+                                           // (first_spin.csv replay: 99.6% locked while powered, 0 false locks)
+#define RSSI_RPM_MAX_SUBHARMONIC_RATIO 0.8f // reject a peak whose f/2 or f/3 has >= this fraction of its power: it's a harmonic
 #define RSSI_RPM_MAX_AGE_US 200000         // older than this and get_rpm_rssi falls back to accel
 
 // While USE_RSSI_RPM is driving but has fallen back to the accelerometer (or hasn't locked yet),
