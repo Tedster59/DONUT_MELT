@@ -29,7 +29,7 @@ Check on the bench with `RSSI_LINK_DIAGNOSTICS` enabled. The USB `LINK` line sho
 
 These settings come from replaying `first_spin.csv`. While powered, it was locked 99.6% of the time and stayed within 5% of the accelerometer. During a coast-down with a stale search centre, it produced no false locks.
 
-The search centre must be the *corrected* accel RPM. If the curve factor is outside about 0.7 to 1.3, the real RPM falls outside the search band of the raw accel RPM, and RSSI can never lock.
+The search centre must be the *corrected* accel RPM. If the curve factor is outside about 0.7 to 1.3, the real RPM falls outside the search band of the raw accel RPM, and RSSI can never lock. While the bot is live at zero throttle in melty mode, the accel RPM is re-read every `IDLE_RPM_REFRESH_US` (20 ms), so the search follows a coast-down instead of freezing at the last powered speed.
 
 ## Modes
 
@@ -183,7 +183,9 @@ Hold CH10 for 3 s while killed to clear the curve.
 | `RSSI_RPM_SEARCH_FRACTION` | 0.3 | Search band around the corrected accel RPM |
 | `RSSI_RPM_MIN_CONFIDENCE` | 0.20 | Lock threshold |
 | `RSSI_RPM_NUM_HARMONICS` | 4 | Harmonics summed per candidate frequency |
-| `RSSI_RPM_MAX_SUBHARMONIC_RATIO` | 0.8 | Rejects peaks that are harmonics of a slower rotation || `RSSI_RPM_MAX_AGE_US` | 200000 | How long a lock outlives its last good estimate |
+| `RSSI_RPM_MAX_SUBHARMONIC_RATIO` | 0.8 | Rejects peaks that are harmonics of a slower rotation |
+| `IDLE_RPM_REFRESH_US` | 20000 | Accel RPM re-read interval at zero throttle (melty mode) |
+| `RSSI_RPM_MAX_AGE_US` | 200000 | How long a lock outlives its last good estimate |
 | `RSSI_RPM_HARMONIC` | 1 | RSSI cycles per rotation of the fundamental. Leave at 1: the harmonic sum handles multi-lobe patterns. |
 | `RSSI_RPM_MIN_SEED_RPM` | 300 | No search below this accel RPM |
 | `RSSI_RPM_FALLBACK_LED_STROBE_US` | 80000 | Fallback LED strobe period; comment out to disable |

@@ -244,10 +244,19 @@ void drive_update_bot_state(bot_state_t* bot_state, pc_state_t* throttle_pc_stat
 
     // rpm is no longer read here — bot_state->rpm is kept current by
     // get_rpm/get_rpm_2accel itself, called once per rotation from handle_spin
+    // (and every IDLE_RPM_REFRESH_US while idling in melty mode, below)
 
     if(drive_is_throttle_zero()) {
         if (donut_get_curr_drive_mode() == DRIVE_MODE_MELTY) {
             led_repeat_blink(4);
+
+            // handle_spin isn't running, so nothing else reads the rpm: keep it current while the
+            // bot coasts, otherwise the RSSI search stays centred on the last powered speed
+            static uint64_t last_idle_rpm_us = 0;
+            if (time_us_64() - last_idle_rpm_us >= IDLE_RPM_REFRESH_US) {
+                last_idle_rpm_us = time_us_64();
+                get_rpm(right_x_percent, bot_state->accel_offset_cm);
+            }
         } else {
             led_repeat_blink(5);
         }

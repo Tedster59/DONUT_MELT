@@ -91,6 +91,11 @@ uint8_t donut_get_curr_drive_mode();
 #define RSSI_RPM_MAX_SUBHARMONIC_RATIO 0.8f // reject a peak whose f/2 or f/3 has >= this fraction of its power: it's a harmonic
 #define RSSI_RPM_MAX_AGE_US 200000         // older than this and get_rpm_rssi falls back to accel
 
+// while live at zero throttle in melty mode, keep reading the accel rpm at this interval so the
+// RSSI search stays centred on the real speed during a coast-down (it used to freeze at the last
+// powered value)
+#define IDLE_RPM_REFRESH_US 20000
+
 // While USE_RSSI_RPM is driving but has fallen back to the accelerometer (or hasn't locked yet),
 // the heading LED strobes on/off with this period instead of showing a steady arc.
 // Solid heading arc = RSSI, strobing arc = accel fallback. Comment out to disable.
