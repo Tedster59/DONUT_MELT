@@ -49,7 +49,7 @@
 #define MIN_TRANSLATION_RPM 400
 
 // 0.25 for 1lb donut with 90 degree LED offset, 0.45 or so for 3lb donut with 45 deg LED.
-#define LED_OFFSET_PERCENT 0.25
+#define LED_OFFSET_PERCENT 0.45
 #define MIN_LED_PERCENT_DURATION 0.25
 #define MAX_LED_PERCENT_DURATION 0.5
 
