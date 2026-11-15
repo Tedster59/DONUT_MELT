@@ -134,9 +134,11 @@ RSSI doesn't use the curve, because it measures RPM directly. The curve still ma
 - It is the fallback whenever RSSI loses lock.
 - It sets the centre of the RSSI search.
 
-### Calibrating the curve from RSSI (recommended)
+CH10 currently saves the **hand trim** (`RPM_CURVE_SAVE_FROM_RSSI` is commented out in `donut_config.h`). Switch to RSSI calibration once logs show the RSSI lock agrees with reality.
 
-With `RPM_CURVE_SAVE_FROM_RSSI` defined (the default), pressing **CH10** while RSSI is locked and the speed is steady saves the **measured** factor at that speed:
+### Calibrating the curve from RSSI
+
+With `RPM_CURVE_SAVE_FROM_RSSI` defined, pressing **CH10** while RSSI is locked and the speed is steady saves the **measured** factor at that speed:
 
 ```
 factor = rssi_rpm / mean raw accel rpm over the same ~0.5 s window
@@ -159,7 +161,7 @@ If the speed isn't steady enough, the press behaves differently depending on the
 
 The transmitter doesn't show which kind of save happened, only USB serial does. If saves never come from RSSI, the accel RPM is probably wobbling more than 5%: raise `RSSI_CAL_MAX_SPREAD`.
 
-### Hand trimming (no RSSI lock)
+### Hand trimming (current setting, or with no RSSI lock)
 
 1. Spin at a steady speed.
 2. Trim with **left stick X** until the heading holds.
@@ -173,7 +175,7 @@ Hold CH10 for 3 s while killed to clear the curve.
 
 1. **Bench:** check that `LINK` shows ~1000 Hz link stats.
 2. **Shadow spins:** spin at several speeds. On the transmitter, check that Volt reaches `1.0` and confidence stays above `20.0`; the first spin log suggests about 35–45. Dump the log and check that the RSSI dots follow the corrected accel line.
-3. **Calibrate:** save RSSI curve points at 3 or 4 steady speeds as described above. Heading drift on the accelerometer should get visibly smaller.
+3. **Calibrate:** uncomment `RPM_CURVE_SAVE_FROM_RSSI`, then save RSSI curve points at 3 or 4 steady speeds as described above. Heading drift on the accelerometer should get visibly smaller.
 4. **Drive on RSSI:** enable `USE_RSSI_RPM`. Steady arc and Volt `2.0` mean RSSI is driving. A strobing arc and Volt `0.0` mean it has fallen back. The red bands in the log show where.
 
 ## Tuning reference (donut_config.h)
@@ -189,5 +191,5 @@ Hold CH10 for 3 s while killed to clear the curve.
 | `RSSI_RPM_HARMONIC` | 1 | RSSI cycles per rotation of the fundamental. Leave at 1: the harmonic sum handles multi-lobe patterns. |
 | `RSSI_RPM_MIN_SEED_RPM` | 300 | No search below this accel RPM |
 | `RSSI_RPM_FALLBACK_LED_STROBE_US` | 80000 | Fallback LED strobe period; comment out to disable |
-| `RPM_CURVE_SAVE_FROM_RSSI` | defined | CH10 saves the measured factor when available |
+| `RPM_CURVE_SAVE_FROM_RSSI` | commented out | Defined: CH10 saves the measured factor when available. Commented out: CH10 saves the hand trim. |
 | `RSSI_CAL_MAX_SPREAD` | 0.05 | Steadiness needed for an RSSI curve point |

@@ -104,8 +104,9 @@ uint8_t donut_get_curr_drive_mode();
 // CH10 (RPM_CURVE_SAVE_SWITCH) while RSSI is locked and the speed is steady saves the MEASURED
 // factor (rssi rpm / raw accel rpm) as the curve point instead of the hand-trimmed one. Works in
 // shadow mode too (USE_RSSI_RPM off), so you can calibrate the accel curve with RSSI before trusting
-// RSSI to drive. Comment out to always save the hand trim.
-#define RPM_CURVE_SAVE_FROM_RSSI
+// RSSI to drive. Commented out = CH10 always saves the hand trim (current setting: tuning by hand
+// until the harmonic-sum RSSI lock has been checked against real spins).
+// #define RPM_CURVE_SAVE_FROM_RSSI
 #define RSSI_CAL_MAX_SPREAD 0.05f          // max (max-min)/mean of accel rpm, and change between RSSI estimates, over the window
 
 //----------END RSSI RPM SETTINGS----------
