@@ -125,8 +125,10 @@ uint8_t donut_get_curr_drive_mode();
 // corrected rpm = accel rpm * clamp(curve(accel rpm) * trim). See donut_rpm_curve.h for tuning steps.
 #define RPM_CORRECTION_MIN 0.5
 #define RPM_CORRECTION_MAX 1.5
-#define RPM_TRIM_RATE_PER_SEC 0.35          // left stick X trim speed (matches the old per-loop step at ~3.5kHz)
-#define RPM_TRIM_DEADZONE 0.05              // left stick X (after input_remapping) deadzone
+#define RPM_TRIM_RATE_PER_SEC 0.15          // left stick X trim speed at FULL stick; scales down with deflection
+                                            // (half stick ~0.01/s, since the stick is cubed)
+#define RPM_TRIM_DEADZONE 0.02              // left stick X (after input_remapping, i.e. cubed) deadzone:
+                                            // 0.02 = ~27% of the stick's half-travel
 #define RPM_CURVE_MAX_POINTS 8
 #define RPM_CURVE_MERGE_FRACTION 0.05f      // saving within 5% of an existing point's rpm updates that point
 #define RPM_CURVE_MIN_SAVE_RPM 300          // ignore save presses below this accel rpm

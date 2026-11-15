@@ -129,7 +129,10 @@ void rpm_curve_adjust_trim(double stick, uint64_t dt_us) {
     if (dt_us > 50000) {
         dt_us = 50000;
     }
-    double step = RPM_TRIM_RATE_PER_SEC * (dt_us / 1000000.0);
+    // proportional: 0 at the deadzone edge, full rate at full stick. The stick arrives already
+    // cubed (input_remapping), so half deflection is ~1/8 of the full rate, for fine nudges.
+    double deflection = fmin((fabs(stick) - RPM_TRIM_DEADZONE) / (1.0 - RPM_TRIM_DEADZONE), 1.0);
+    double step = RPM_TRIM_RATE_PER_SEC * deflection * (dt_us / 1000000.0);
     trim += (stick > 0) ? step : -step;
     trim = clamp_factor(trim);
 }
