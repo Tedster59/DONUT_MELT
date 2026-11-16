@@ -476,3 +476,5 @@ dkms.conf
 
 # debug information files
 *.dwo
+first_spin.csv
+second_spin.csv
