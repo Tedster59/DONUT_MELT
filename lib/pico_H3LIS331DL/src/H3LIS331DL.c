@@ -54,10 +54,12 @@ bool is_data_ready_to_be_read(accelerometer_t* accel)
     return false;
 }
 
-double* accelerometer_get_all_axis(accelerometer_t* accel){ //Maybe make a struct to store/access accelerometer data more easily 
-    if (!is_data_ready_to_be_read(accel)){
-        return accel->_curr_readings;
-    }
+double* accelerometer_get_all_axis(accelerometer_t* accel){ //Maybe make a struct to store/access accelerometer data more easily
+    // No status register poll before reading: it cost a full extra I2C transaction (~100us per
+    // sensor) of blocking time. Block data update (BDU) is on, so the 6 data bytes always come
+    // from one complete sample; at the 1 kHz output rate reading without new data just returns the
+    // latest sample again, which every caller handles fine. is_data_ready_to_be_read is kept
+    // for anything that does need to know whether a sample is new.
 
     uint8_t firstRegister = (1 << 7) | LSB_X_REGISTER_ADDRESS; //MSB is 1 for auto-increment during register reads
     uint8_t buffer[6]; //need enough space for MSB register and LSB register of each axis
