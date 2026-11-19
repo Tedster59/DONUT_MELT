@@ -38,6 +38,7 @@ target_link_libraries(pico_crsf
 	hardware_dma
     pico_time
     hardware_uart
+    hardware_irq
     hardware_gpio
 )
 

@@ -165,7 +165,18 @@ typedef struct
 	uint8_t crc_index;
 
 	uint64_t last_telem_us; // telemetry is sent at most every CRSF_TELEM_INTERVAL_US
+
+	// Received bytes, filled by the UART RX interrupt and drained by crsf_process_frames().
+	// The UART's own FIFO is only 32 bytes (~350us at 921600 baud), so any main loop stall longer
+	// than that (an I2C accelerometer read, a printf burst) used to drop bytes and lose frames.
+	// The interrupt moves bytes out as they arrive; CRSF_RX_RING_SIZE bytes cover ~5.5ms of stall.
+	volatile uint8_t rx_ring[512];
+	volatile uint16_t rx_head;      // next write index, only written by the interrupt
+	volatile uint16_t rx_tail;      // next read index, only written by crsf_process_frames
+	volatile uint32_t rx_overflows; // bytes dropped because the ring was full
 } crsf_instance;
+
+#define CRSF_RX_RING_SIZE 512 // must match rx_ring above, and be a power of 2
 
 // The receiver only forwards a telemetry frame per over-the-air telemetry slot (a few Hz to
 // tens of Hz), so sending faster just occupies the UART: one battery frame takes ~286us at 420k baud.
@@ -189,6 +200,7 @@ extern "C"
 	void crsf_set_on_failsafe(crsf_instance *ins, void (*callback)(const bool failsafe));
 	void crsf_begin(crsf_instance *ins, uart_inst_t *uart, uint8_t rx, uint8_t tx);
 	void crsf_end(crsf_instance *ins);
+	uint32_t crsf_rx_overflows(crsf_instance *ins);
 	void crsf_process_frames(crsf_instance *ins);
 	void crsf_send_telem(crsf_instance *ins);
 	bool crsf_process_frame(crsf_instance *ins, uint8_t *frameIndex, uint8_t *frameLength, uint8_t *crcIndex, uint8_t currentByte);

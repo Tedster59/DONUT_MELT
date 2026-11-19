@@ -70,8 +70,8 @@ void telemetry_output_link_diagnostics(bot_state_t* bot_state) {
 
     uint64_t now = time_us_64();
 
-    // main loop timing: the Pico's UART FIFO is 32 bytes (~0.76ms at 420k baud), so a
-    // loop slower than that can drop CRSF bytes and lose frames to CRC errors
+    // main loop timing. CRSF bytes are buffered by the UART RX interrupt (512 bytes, ~5.5ms at
+    // 921600 baud), so only a loop stall longer than that drops bytes ("uart ovf" counts them)
     if (last_call_us != 0 && now - last_call_us > max_loop_us) {
         max_loop_us = (uint32_t)(now - last_call_us);
     }
@@ -105,6 +105,7 @@ void telemetry_output_link_diagnostics(bot_state_t* bot_state) {
                     info.last.rssi, info.rssi_min, info.rssi_max, info.last.link_quality, info.last.snr);
             }
             printf(" | loop %.0f Hz max %lu us", loops / secs, (unsigned long)max_loop_us);
+            printf(" | uart ovf %lu", (unsigned long)receiver_uart_rx_overflows());
             static const char* const state_names[] = { "unlocked", "shadow", "DRIVING" };
             printf(" | rpm accel %lu (corr %lu) rssi %lu conf %.2f %s",
                 (unsigned long)bot_state->rpm, (unsigned long)bot_state->accel_rpm_corrected,

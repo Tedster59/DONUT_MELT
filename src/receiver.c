@@ -160,3 +160,7 @@ uint32_t receiver_rc_frame_age_us(void) {
     uint64_t age = time_us_64() - _last_rc_frame_us;
     return age > UINT32_MAX ? UINT32_MAX : (uint32_t)age;
 }
+
+uint32_t receiver_uart_rx_overflows() {
+    return crsf_rx_overflows(&_user_crsf_instance);
+}

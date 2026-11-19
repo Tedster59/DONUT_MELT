@@ -42,6 +42,9 @@ receiver_link_info_t receiver_take_link_info();
 bool receiver_pop_raw_sample(receiver_raw_sample_t* out);
 uint32_t receiver_raw_samples_overwritten();
 
+// CRSF bytes dropped since boot because the UART receive ring was full (main loop stalled > ~5ms)
+uint32_t receiver_uart_rx_overflows();
+
 uint16_t receiver_get_channel(Channel channel);
 
 double receiver_get_percent_for_channel(Channel channel);

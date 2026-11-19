@@ -16,6 +16,7 @@
 #include "crsf.h"
 #include <hardware/uart.h>
 #include <hardware/gpio.h>
+#include <hardware/irq.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -105,6 +106,41 @@ void crsf_init(crsf_instance* ins) {
   ins->frame_length = 0;
   ins->crc_index = 0;
   ins->last_telem_us = 0;
+  ins->rx_head = 0;
+  ins->rx_tail = 0;
+  ins->rx_overflows = 0;
+}
+
+_Static_assert((CRSF_RX_RING_SIZE & (CRSF_RX_RING_SIZE - 1)) == 0, "CRSF_RX_RING_SIZE must be a power of 2");
+_Static_assert(sizeof(((crsf_instance *)0)->rx_ring) == CRSF_RX_RING_SIZE, "rx_ring size must match CRSF_RX_RING_SIZE");
+
+// one instance per hardware UART, for the interrupt handlers
+static crsf_instance *_uart_instances[NUM_UARTS];
+
+static void _crsf_uart_rx(crsf_instance *ins)
+{
+  while (uart_is_readable(ins->uart))
+  {
+    uint8_t byte = (uint8_t)uart_get_hw(ins->uart)->dr;
+    uint16_t head = ins->rx_head;
+    uint16_t next = (head + 1) & (CRSF_RX_RING_SIZE - 1);
+    if (next == ins->rx_tail)
+    {
+      ins->rx_overflows++; // ring full: drop the byte, the parser re-syncs on the next frame
+      continue;
+    }
+    ins->rx_ring[head] = byte;
+    __compiler_memory_barrier(); // store the byte before publishing the new head
+    ins->rx_head = next;
+  }
+}
+
+static void _crsf_uart0_irq(void) { _crsf_uart_rx(_uart_instances[0]); }
+static void _crsf_uart1_irq(void) { _crsf_uart_rx(_uart_instances[1]); }
+
+uint32_t crsf_rx_overflows(crsf_instance *ins)
+{
+  return ins->rx_overflows;
 }
 
 /**
@@ -122,6 +158,14 @@ void crsf_begin(crsf_instance *ins, uart_inst_t *uart, uint8_t tx, uint8_t rx)
   uart_init(uart, BAUD_RATE);
   gpio_set_function(tx, GPIO_FUNC_UART);
   gpio_set_function(rx, GPIO_FUNC_UART);
+
+  // receive by interrupt into ins->rx_ring (fires when the FIFO has data, and on RX timeout for
+  // the tail of a frame)
+  uint index = uart_get_index(uart);
+  _uart_instances[index] = ins;
+  irq_set_exclusive_handler(UART_IRQ_NUM(uart), index ? _crsf_uart1_irq : _crsf_uart0_irq);
+  irq_set_enabled(UART_IRQ_NUM(uart), true);
+  uart_set_irqs_enabled(uart, true, false);
 }
 
 /**
@@ -131,6 +175,10 @@ void crsf_begin(crsf_instance *ins, uart_inst_t *uart, uint8_t tx, uint8_t rx)
  */
 void crsf_end(crsf_instance *ins)
 {
+  uart_set_irqs_enabled(ins->uart, false, false);
+  irq_set_enabled(UART_IRQ_NUM(ins->uart), false);
+  irq_remove_handler(UART_IRQ_NUM(ins->uart), uart_get_index(ins->uart) ? _crsf_uart1_irq : _crsf_uart0_irq);
+  _uart_instances[uart_get_index(ins->uart)] = NULL;
   uart_deinit(ins->uart);
 }
 
@@ -504,13 +552,16 @@ void crsf_send_telem(crsf_instance *ins)
  */
 void crsf_process_frames(crsf_instance *ins)
 {
-  // Drain only what is already in the UART FIFO, without waiting for more bytes. The parser
-  // state lives in ins, so a frame that is still arriving is completed on a later call
-  // (previously the state was reset every call, dropping any frame split across calls).
+  // Drain only what the RX interrupt has already buffered, without waiting for more bytes. The
+  // parser state lives in ins, so a frame that is still arriving is completed on a later call.
   // If a byte is ever lost, the CRC check fails and the parser re-syncs on the next 0xC8.
-  while (uart_is_readable(ins->uart))
+  uint16_t head = ins->rx_head;
+  __compiler_memory_barrier(); // read the head before the bytes it covers
+  while (ins->rx_tail != head)
   {
-    uint8_t currentByte = uart_getc(ins->uart);
+    uint16_t tail = ins->rx_tail;
+    uint8_t currentByte = ins->rx_ring[tail];
+    ins->rx_tail = (tail + 1) & (CRSF_RX_RING_SIZE - 1);
     crsf_process_frame(ins, &ins->frame_index, &ins->frame_length, &ins->crc_index, currentByte);
   }
 
