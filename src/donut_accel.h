@@ -16,4 +16,7 @@ double get_fake_rpm(double right_x_percent, double accel_offset_cm);
 
 double get_rpm_2accel(double right_x_percent, double accel_offset_cm);
 
+// 3lb: raw two-accelerometer rpm with no smoothing, correction or bot_state side effects
+double accel_read_raw_rpm_2accel(void);
+
 #endif

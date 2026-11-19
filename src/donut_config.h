@@ -139,6 +139,37 @@ uint8_t donut_get_curr_drive_mode();
 //----------END RPM CORRECTION CURVE SETTINGS----------
 
 
+//----------TRACTION CONTROL SETTINGS (3lb)----------
+
+// Caps the melty base throttle during spin-up so the wheels don't burn out (donut_traction.h).
+// While it can act, the left stick goes straight to the throttle (no THROTTLE_PC_P ramp).
+// CH9 toggles it on/off; the transmitter's SWITCH_F middle page shows the state as the drive mode
+// decimal (x.0 off, x.1 uncalibrated, x.2 no ESC telemetry, x.3 watching, x.4 limiting).
+#define TRACTION_CONTROL
+#define TC_ENABLED_AT_BOOT true
+
+// Motor rpm (eRPM / MOTOR_POLE_PAIRS) per bot rpm when the wheels aren't slipping. 0 = not
+// calibrated: everything is measured and logged, but the throttle is never limited. Calibrate
+// from a log of a few gentle steady spins: dump_log.py --plot prints a suggested value.
+#define TC_MOTOR_RPM_PER_BOT_RPM 0.0
+
+#define TC_TARGET_SLIP 0.15         // wheels allowed this much faster than the bot (0.15 = 15%)
+#define TC_MIN_REF_RPM 300          // slip is measured against at least this rpm (no divide by ~0)
+#define TC_ACCEL_TRUST_RPM 500      // accelerometer rpm below this is ignored (offset error / noise)
+#define TC_LAUNCH_RPM_PER_S 3000    // launch ramp: how fast the bot can spin up on grip
+#define TC_LAUNCH_RAMP_MAX_RPM 800  // the launch ramp stops here; the accelerometer takes over
+#define TC_FILTER_TAU_US 5000       // low pass on both wheel and accel rpm (matched delays)
+#define TC_ACCEL_INTERVAL_US 2000   // accelerometer read rate for traction control (each read ~0.6ms)
+#define TC_MAX_ERPM_AGE_US 5000     // ESC eRPM older than this = no telemetry, stop limiting
+#define TC_CUT_GAIN 20.0            // cap drop per second per unit of slip over target
+#define TC_KP 0.5                   // extra immediate cap drop per unit of slip over target
+#define TC_RECOVER_PER_S 1.5        // cap rise per second while under target slip
+#define TC_MIN_CEILING 0.10         // never cap the throttle below this
+#define TC_LOG_INTERVAL_US 5000     // M/T/U/V log records at 200 Hz while in melty with throttle
+
+//----------END TRACTION CONTROL SETTINGS----------
+
+
 //----------FLASH LOGGER SETTINGS----------
 
 // Records RSSI samples + RPM estimates in RAM while the bot is live, saves the run to flash once

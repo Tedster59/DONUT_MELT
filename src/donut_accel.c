@@ -108,7 +108,10 @@ float vec_magnitude(Vector2D v) {
     return sqrtf((v.x * v.x) + (v.y * v.y));
 }
 
-double get_rpm_2accel(double right_x_percent, double accel_offset_cm) {
+// Raw (unsmoothed, uncorrected) RPM from the two accelerometers. Reads both over I2C (~0.6 ms),
+// and doesn't touch the drive's smoothing window or bot_state, so traction control can call it at
+// its own rate without changing the heading timing.
+double accel_read_raw_rpm_2accel(void) {
     #ifdef DONUT_3LB_CONFIG
         double* Accel1RawData = accelerometer_get_all_axis(accel_1);
         double* Accel2RawData = accelerometer_get_all_axis(accel_2);
@@ -139,7 +142,15 @@ double get_rpm_2accel(double right_x_percent, double accel_offset_cm) {
         float mag_delta_A = vec_magnitude(delta_A);
         float mag_delta_Pos = vec_magnitude(delta_pos);
 
-        double rpm = sqrtf((mag_delta_A / mag_delta_Pos) * 89445.0f);
+        return sqrtf((mag_delta_A / mag_delta_Pos) * 89445.0f);
+    #else
+        return -1;
+    #endif
+}
+
+double get_rpm_2accel(double right_x_percent, double accel_offset_cm) {
+    #ifdef DONUT_3LB_CONFIG
+        double rpm = accel_read_raw_rpm_2accel();
 
         // track true unsmoothed peak before any smoothing/adjustment is applied
         if (rpm > _user_bot_state->max_rpm) {

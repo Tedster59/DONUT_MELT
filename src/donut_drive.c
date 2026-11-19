@@ -263,6 +263,7 @@ void drive_update_bot_state(bot_state_t* bot_state, pc_state_t* throttle_pc_stat
 
         throttle_pc_state->curr_target = 0;
         throttle_pc_state->curr_value = 0;
+        traction_reset();
         handle_idle(bot_state, left_y_percent, right_y_percent, right_x_percent);
         last_loop = time_us_64();
         return;
@@ -270,6 +271,16 @@ void drive_update_bot_state(bot_state_t* bot_state, pc_state_t* throttle_pc_stat
 
     if (donut_get_curr_drive_mode() == DRIVE_MODE_MELTY) {
         throttle_pc_state->curr_target = rescalePercentThrottle(left_y_percent, MELTY_MAX_THROTTLE, false);
+
+        // Traction control replaces the THROTTLE_PC_P ramp while it can act: the stick goes
+        // straight through and the traction cap is the only limit. The applied (capped) value is
+        // written back so that if traction control drops out (ESC telemetry lost), the ramp
+        // continues from what was actually being applied instead of jumping to full stick.
+        if (traction_controls_throttle()) {
+            throttle_pc_state->curr_value = throttle_pc_state->curr_target;
+        }
+        throttle_pc_state->curr_value = traction_limit_throttle(throttle_pc_state->curr_value);
+
         handle_spin(
             bot_state, 
             throttle_pc_state->curr_value, 
@@ -282,6 +293,7 @@ void drive_update_bot_state(bot_state_t* bot_state, pc_state_t* throttle_pc_stat
     } 
     
     if (donut_get_curr_drive_mode() == DRIVE_MODE_TANK) {
+        traction_reset();
         led_repeat_blink(3);
         handle_one_stick_tank(
             bot_state, 

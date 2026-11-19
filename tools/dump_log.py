@@ -3,7 +3,7 @@
 Usage (run from the repo root; the port is found automatically if omitted):
     python tools/dump_log.py                      # saves donut_log_<timestamp>.csv
     python tools/dump_log.py COM3 -o run1.csv
-    python tools/dump_log.py --plot               # also plots RSSI and RPM (needs matplotlib)
+    python tools/dump_log.py --plot               # also plots RSSI, RPM and traction control (needs matplotlib)
     python tools/dump_log.py --plot-only run1.csv # plot an existing file
 
 The bot must be powered with the killswitch on (not live) so it answers serial commands.
@@ -51,7 +51,7 @@ def download(port, out_path, timeout_s=60):
                 continue  # skip LINK diagnostics or other output before the dump
             if line == "# END":
                 break
-            if line and (line[0] in "RAPDCFfW" or line.startswith("kind,")):
+            if line and (line[0] in RECORD_KINDS + "".join(EVENT_KINDS) or line.startswith("kind,")):
                 lines.append(line)
                 deadline = time.time() + 5  # keep going while data flows
         else:
@@ -65,6 +65,59 @@ def download(port, out_path, timeout_s=60):
 FAILSAFE_REASONS = {1: "link LQ/RSSI", 2: "RC timeout"}
 CUT_REASONS = {1: "failsafe", 2: "killswitch"}
 EVENT_KINDS = ("F", "f", "W", "L", "l", "K", "k", "G")
+RECORD_KINDS = "RAPDCMTUV"
+TC_STATES = {0: "off", 1: "uncalibrated", 2: "no ESC telemetry", 3: "watching", 4: "limiting"}
+
+
+def read_traction(path):
+    """Traction control records: motor rpm (M), state + fast accel rpm (T), cap + reference (U),
+    slip + wheel rpm in bot-equivalent rpm (V). Logs from before traction control have none."""
+    tc = {"m_t": [], "m_rpm": [], "t_t": [], "state": [], "accel": [], "u_t": [], "cap": [], "ref": [],
+          "v_t": [], "slip": [], "wheel": []}
+    pending = {}
+    with open(path) as f:
+        for row in csv.DictReader(f):
+            kind = row["kind"]
+            if kind not in "MTUV":
+                continue
+            t = int(row["t_us"]) / 1e6
+            if kind == "M":
+                # motors 1 and 2 are logged back to back; keep the faster one (the one that slips)
+                pending[int(row["motor"])] = int(row["motor_rpm"])
+                if len(pending) == 2:
+                    tc["m_t"].append(t)
+                    tc["m_rpm"].append(max(pending.values()))
+                    pending = {}
+            elif kind == "T":
+                tc["t_t"].append(t)
+                tc["state"].append(int(row["tc_state"]))
+                tc["accel"].append(int(row["tc_accel_rpm"]))
+            elif kind == "U":
+                tc["u_t"].append(t)
+                tc["cap"].append(float(row["tc_ceiling"]))
+                tc["ref"].append(int(row["tc_ref_rpm"]))
+            else:
+                tc["v_t"].append(t)
+                tc["slip"].append(float(row["tc_slip"]))
+                tc["wheel"].append(int(row["tc_wheel_rpm"]))
+    return tc
+
+
+def suggest_calibration(tc, min_accel_rpm=800):
+    """TC_MOTOR_RPM_PER_BOT_RPM from motor rpm / accel rpm. Slip only ever makes the wheels faster
+    than the bot while driving, so a low percentile of the ratio is the no-slip value."""
+    ratios = [m / a for m, a in zip(tc["m_rpm"], tc["accel"]) if a >= min_accel_rpm and m > 0]
+    if len(ratios) < 50:
+        print(f"Traction calibration: not enough samples above {min_accel_rpm} accel rpm "
+              f"({len(ratios)}); spin steadily for a few seconds.")
+        return None
+    ratios.sort()
+    pct = lambda p: ratios[int(p / 100 * (len(ratios) - 1))]
+    print(f"Traction calibration from {len(ratios)} samples: motor rpm / bot rpm 10th pct {pct(10):.3f}, "
+          f"median {pct(50):.3f}, 90th pct {pct(90):.3f}")
+    print(f"  suggested: #define TC_MOTOR_RPM_PER_BOT_RPM {pct(10):.3f}"
+          "  (from the gentlest, steadiest spins; check the ratio plot is flat there)")
+    return pct(10)
 
 
 def read_events(path):
@@ -135,7 +188,9 @@ def plot(path):
                 c_t.append(t)
                 corrected_rpm.append(int(row["accel_rpm_corrected"]))
 
-    fig, axes = plt.subplots(3, 1, sharex=True, figsize=(12, 8))
+    tc = read_traction(path)
+    has_tc = bool(tc["m_t"])
+    fig, axes = plt.subplots(5 if has_tc else 3, 1, sharex=True, figsize=(12, 12 if has_tc else 8))
     axes[0].plot(rssi_t, rssi, lw=0.5)
     axes[0].set_ylabel("RSSI (dBm)")
     axes[1].plot(a_t, accel_rpm, label="accel raw", alpha=0.5)
@@ -151,8 +206,36 @@ def plot(path):
     if d_t:
         # 0 = unlocked (on accel), 1 = locked in shadow mode, 2 = locked and driving
         axes[2].step(d_t, [s * 50 for s in state], where="post", label="rssi state x50")
-    axes[2].set_xlabel("time (s)")
+    axes[-1].set_xlabel("time (s)")
     axes[2].legend()
+
+    if has_tc:
+        # wheel speed vs bot speed: wheel_rpm is in bot-equivalent rpm once calibrated; before
+        # that, the motor/accel ratio is plotted so the no-slip value can be read off
+        ax = axes[3]
+        ax.plot(tc["t_t"], tc["accel"], label="bot (fast accel)")
+        ax.plot(tc["u_t"], tc["ref"], label="TC reference", lw=0.8, ls="--")
+        if tc["v_t"]:
+            ax.plot(tc["v_t"], tc["wheel"], label="wheels (bot-equivalent)")
+            ax.set_ylabel("RPM")
+        else:
+            ratio_t = [t for t, a in zip(tc["m_t"], tc["accel"]) if a >= 800]
+            ratio = [m / a for m, a in zip(tc["m_rpm"], tc["accel"]) if a >= 800]
+            ax2 = ax.twinx()
+            ax2.plot(ratio_t, ratio, color="tab:red", marker=".", ls="none", ms=2, label="motor/bot ratio")
+            ax2.set_ylabel("motor rpm / bot rpm")
+            ax2.legend(loc="upper right")
+            ax.set_ylabel("bot RPM")
+        ax.legend(loc="upper left")
+        ax = axes[4]
+        ax.plot(tc["u_t"], tc["cap"], label="throttle cap")
+        if tc["v_t"]:
+            ax.plot(tc["v_t"], tc["slip"], label="slip")
+        ax.step(tc["t_t"], [s / 4 for s in tc["state"]], where="post", lw=0.8,
+                label="TC state / 4 (" + ", ".join(f"{k}={v}" for k, v in TC_STATES.items()) + ")")
+        ax.set_ylim(-0.2, 1.6)
+        ax.legend(loc="upper right", fontsize=8)
+        axes[-1].set_xlabel("time (s)")
 
     # shade where RSSI was not locked, so fallbacks stand out
     for ax in axes:
@@ -190,6 +273,7 @@ def main():
 
     if args.plot_only:
         print_events(args.plot_only)
+        suggest_calibration(read_traction(args.plot_only))
         plot(args.plot_only)
         return
     port = args.port or find_pico_port()
@@ -198,6 +282,7 @@ def main():
     out = args.out or datetime.datetime.now().strftime("donut_log_%Y%m%d_%H%M%S.csv")
     download(port, out)
     print_events(out)
+    suggest_calibration(read_traction(out))
     if args.plot:
         plot(out)
 

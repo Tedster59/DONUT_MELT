@@ -174,6 +174,7 @@ void when_failsafe_on() {
     bot_state.rpm_source = RPM_SOURCE_ACCEL;
     bot_state.drive_rpm = 0;
     bot_state.accel_rpm_corrected = 0;
+    traction_reset();
     // (the rpm correction is no longer reset here: the trim survives kills, saved points survive
     // power cycles, and holding CH10 for 3 s while killed clears back to the default)
 
@@ -247,6 +248,7 @@ void always() {
 
         #ifdef DONUT_3LB_CONFIG
             rpm_curve_update(&bot_state, donut_is_live(), donut_is_killswitch_active());
+            traction_update_switch(&bot_state);
         #endif
     #endif
 

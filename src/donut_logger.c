@@ -155,6 +155,13 @@ static void push_record(uint64_t now_us, char kind, uint8_t a, uint16_t b) {
     have_unsaved = true;
 }
 
+void logger_log_record(char kind, uint8_t a, uint16_t b) {
+    if (disabled) {
+        return;
+    }
+    push_record(time_us_64(), kind, a, b);
+}
+
 void logger_init(void) {
     // never let the log region overlap the program image
     if (!donut_flash_region_safe(LOGGER_FLASH_OFFSET, FLASH_SECTOR_SIZE + LOG_DATA_REGION_BYTES)) {
@@ -231,6 +238,8 @@ static void save_to_flash(void) {
 
 // ---------- USB serial commands ----------
 
+#define TC_COLS ",,,,,,,,"
+
 static void dump_saved_log(void) {
     if (!saved_log_valid()) {
         printf("LOGGER no saved run\n");
@@ -245,16 +254,20 @@ static void dump_saved_log(void) {
     printf("# DONUT_LOG v%lu records=%lu dropped=%lu events=%lu events_dropped=%lu\n",
         (unsigned long)h->version, (unsigned long)h->record_count, (unsigned long)h->dropped,
         (unsigned long)n_events, (unsigned long)(h->version >= 2 ? h->events_dropped : 0));
-    // 15 columns; every row prints all of them
-    printf("kind,t_us,rssi,lq,throttle_pct,accel_rpm,rssi_rpm,confidence,rssi_state,drive_rpm,correction,accel_rpm_corrected,fs_reasons,fs_ms,ch5\n");
+    // 23 columns; every row prints all of them (TC_COLS = the 8 traction control columns left empty)
+    printf("kind,t_us,rssi,lq,throttle_pct,accel_rpm,rssi_rpm,confidence,rssi_state,drive_rpm,correction,accel_rpm_corrected,fs_reasons,fs_ms,ch5,motor,motor_rpm,tc_state,tc_accel_rpm,tc_ceiling,tc_ref_rpm,tc_slip,tc_wheel_rpm\n");
     for (uint32_t i = 0; i < h->record_count; i++) {
         const log_record_t* r = &records[i];
         switch (r->kind) {
-            case 'R': printf("R,%lu,%u,%u,,,,,,,,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
-            case 'A': printf("A,%lu,,,%u,%u,,,,,,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
-            case 'P': printf("P,%lu,,,,,%u,%.2f,,,,,,,\n", (unsigned long)r->t_us, r->b, r->a / 100.0f); break;
-            case 'D': printf("D,%lu,,,,,,,%u,%u,,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
-            case 'C': printf("C,%lu,,,,,,,,,%.2f,%u,,,\n", (unsigned long)r->t_us, r->a / 100.0f, r->b); break;
+            case 'R': printf("R,%lu,%u,%u,,,,,,,,,,," TC_COLS "\n", (unsigned long)r->t_us, r->a, r->b); break;
+            case 'A': printf("A,%lu,,,%u,%u,,,,,,,,," TC_COLS "\n", (unsigned long)r->t_us, r->a, r->b); break;
+            case 'P': printf("P,%lu,,,,,%u,%.2f,,,,,,," TC_COLS "\n", (unsigned long)r->t_us, r->b, r->a / 100.0f); break;
+            case 'D': printf("D,%lu,,,,,,,%u,%u,,,,," TC_COLS "\n", (unsigned long)r->t_us, r->a, r->b); break;
+            case 'C': printf("C,%lu,,,,,,,,,%.2f,%u,,," TC_COLS "\n", (unsigned long)r->t_us, r->a / 100.0f, r->b); break;
+            case 'M': printf("M,%lu,,,,,,,,,,,,,,%u,%u,,,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
+            case 'T': printf("T,%lu,,,,,,,,,,,,,,,,%u,%u,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
+            case 'U': printf("U,%lu,,,,,,,,,,,,,,,,,,%.2f,%u,,\n", (unsigned long)r->t_us, r->a / 100.0f, r->b); break;
+            case 'V': printf("V,%lu,,,,,,,,,,,,,,,,,,,,%.2f,%u\n", (unsigned long)r->t_us, r->a / 100.0f - 1.0f, r->b); break;
             default: break;
         }
         if ((i & 255) == 0) {
@@ -282,7 +295,7 @@ static void dump_saved_log(void) {
         if (e.ch5 != UINT16_MAX) {
             printf("%u", e.ch5);
         }
-        printf("\n");
+        printf(TC_COLS "\n");
     }
     printf("# END\n");
 }

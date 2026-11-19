@@ -74,6 +74,7 @@ typedef struct {
 #include "donut_rssi_rpm.h"
 #include "donut_logger.h"
 #include "donut_rpm_curve.h"
+#include "donut_traction.h"
 #include "donut_drive.h"
 #include "donut_telemetry.h"
 

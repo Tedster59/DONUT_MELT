@@ -202,7 +202,8 @@ void telemetry_send_telemetry(bot_state_t* bot_state) {
             break;
         case TELEMETRY_MOTOR2:
             // multiplying by 10 to get the numbers to show up as 1.0, 2.0, etc. on the transmitter
-            receiver_send_telemetry(donut_get_curr_drive_mode()*10,donut_is_killswitch_active()*10,bot_state->max_rpm,2);
+            // drive mode decimal = traction control state (TC_STATE_*): 1.3 = melty, traction control watching
+            receiver_send_telemetry(donut_get_curr_drive_mode()*10 + traction_state(),donut_is_killswitch_active()*10,bot_state->max_rpm,2);
             break;
         case TELEMETRY_MAIN:
             #ifdef DONUT_3LB_CONFIG
