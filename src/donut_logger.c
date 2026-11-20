@@ -239,7 +239,7 @@ static void save_to_flash(void) {
 
 // ---------- USB serial commands ----------
 
-#define TC_COLS ",,,,,,,,"
+#define TC_COLS ",,,,,,,,," // the 9 traction control columns, empty
 
 static void dump_saved_log(void) {
     if (!saved_log_valid()) {
@@ -255,8 +255,8 @@ static void dump_saved_log(void) {
     printf("# DONUT_LOG v%lu records=%lu dropped=%lu events=%lu events_dropped=%lu\n",
         (unsigned long)h->version, (unsigned long)h->record_count, (unsigned long)h->dropped,
         (unsigned long)n_events, (unsigned long)(h->version >= 2 ? h->events_dropped : 0));
-    // 23 columns; every row prints all of them (TC_COLS = the 8 traction control columns left empty)
-    printf("kind,t_us,rssi,lq,throttle_pct,accel_rpm,rssi_rpm,confidence,rssi_state,drive_rpm,correction,accel_rpm_corrected,fs_reasons,fs_ms,ch5,motor,motor_rpm,tc_state,tc_accel_rpm,tc_ceiling,tc_ref_rpm,tc_slip,tc_wheel_rpm\n");
+    // 24 columns; every row prints all of them (TC_COLS = the 9 traction control columns left empty)
+    printf("kind,t_us,rssi,lq,throttle_pct,accel_rpm,rssi_rpm,confidence,rssi_state,drive_rpm,correction,accel_rpm_corrected,fs_reasons,fs_ms,ch5,motor,motor_rpm,tc_state,tc_accel_rpm,tc_ceiling,tc_ref_rpm,tc_slip,tc_wheel_rpm,tc_target\n");
     for (uint32_t i = 0; i < h->record_count; i++) {
         const log_record_t* r = &records[i];
         switch (r->kind) {
@@ -272,15 +272,16 @@ static void dump_saved_log(void) {
                     uint32_t deficit = (uint32_t)(r->a & 0x7F) * 32;
                     uint16_t slow = deficit > r->b ? 0 : (uint16_t)(r->b - deficit);
                     bool m2_faster = (r->a & 0x80) != 0;
-                    printf("M,%lu,,,,,,,,,,,,,,1,%u,,,,,,\n", (unsigned long)r->t_us, m2_faster ? slow : r->b);
-                    printf("M,%lu,,,,,,,,,,,,,,2,%u,,,,,,\n", (unsigned long)r->t_us, m2_faster ? r->b : slow);
+                    printf("M,%lu,,,,,,,,,,,,,,1,%u,,,,,,,\n", (unsigned long)r->t_us, m2_faster ? slow : r->b);
+                    printf("M,%lu,,,,,,,,,,,,,,2,%u,,,,,,,\n", (unsigned long)r->t_us, m2_faster ? r->b : slow);
                 } else {
-                    printf("M,%lu,,,,,,,,,,,,,,%u,%u,,,,,,\n", (unsigned long)r->t_us, r->a, r->b);
+                    printf("M,%lu,,,,,,,,,,,,,,%u,%u,,,,,,,\n", (unsigned long)r->t_us, r->a, r->b);
                 }
                 break;
-            case 'T': printf("T,%lu,,,,,,,,,,,,,,,,%u,%u,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
-            case 'U': printf("U,%lu,,,,,,,,,,,,,,,,,,%.2f,%u,,\n", (unsigned long)r->t_us, r->a / 100.0f, r->b); break;
-            case 'V': printf("V,%lu,,,,,,,,,,,,,,,,,,,,%.2f,%u\n", (unsigned long)r->t_us, r->a / 100.0f - 1.0f, r->b); break;
+            case 'T': printf("T,%lu,,,,,,,,,,,,,,,,%u,%u,,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
+            case 'U': printf("U,%lu,,,,,,,,,,,,,,,,,,%.2f,%u,,,\n", (unsigned long)r->t_us, r->a / 100.0f, r->b); break;
+            case 'V': printf("V,%lu,,,,,,,,,,,,,,,,,,,,%.2f,%u,\n", (unsigned long)r->t_us, r->a / 100.0f - 1.0f, r->b); break;
+            case 'S': printf("S,%lu,,,,,,,,,,,,,,,,,,,,,,%.2f\n", (unsigned long)r->t_us, r->a / 100.0f); break;
             default: break;
         }
         if ((i & 255) == 0) {

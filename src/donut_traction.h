@@ -49,4 +49,7 @@ void traction_update_switch(bot_state_t* bot_state);
 
 uint8_t traction_state(void);
 
+// slip target in use: the S1 slider with TC_SLIP_KNOB, otherwise TC_TARGET_SLIP
+double traction_target_slip(void);
+
 #endif

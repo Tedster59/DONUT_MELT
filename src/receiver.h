@@ -14,7 +14,9 @@ typedef enum {
     SWITCH_C,
     SWITCH_F,
     MOMENTARY_CH9,        // CH9: TX12 momentary button, each press toggles traction control (3lb)
-    RPM_CURVE_SAVE_SWITCH // CH10: TX12 momentary button, saves an RPM correction curve point (hold while killed to clear)
+    RPM_CURVE_SAVE_SWITCH, // CH10: TX12 momentary button, saves an RPM correction curve point (hold while killed to clear)
+    CHANNEL_11,           // CH11: unused
+    SLIDER_CH12           // CH12: TX12 S1 slider, traction control slip target (TC_SLIP_KNOB)
 } Channel;
 
 typedef struct {

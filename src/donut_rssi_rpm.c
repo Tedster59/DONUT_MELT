@@ -44,6 +44,7 @@ static float scan_sub_power;    // max harmonic-sum power at best/2 and best/3
 static uint64_t last_update_us = 0;
 static uint64_t last_valid_us = 0;
 static double last_valid_rpm = 0;
+static double last_valid_slope = 0; // corrected accel rpm trend over that window, rpm/s
 
 // ---------- RPM curve calibration ----------
 // Raw (uncorrected) accel rpm sampled at every update tick, covering the same span as the RSSI
@@ -176,6 +177,30 @@ static void update_calibration(uint64_t now, double rssi_rpm, bool prev_recent, 
     cal_factor = rssi_rpm / mean;
 }
 
+// Speed trend over the RSSI window from the accel history (least-squares slope, rpm/s, in
+// corrected rpm). The RSSI estimate averages the whole ~0.5 s window, so while the speed changes
+// it describes the window's middle, not now; this slope moves it forward to the present.
+static double accel_slope_rpm_per_s(void) {
+    if (accel_hist_count < CAL_HISTORY) {
+        return 0;
+    }
+    double mean_x = (CAL_HISTORY - 1) / 2.0;
+    double mean_y = 0;
+    for (int i = 0; i < CAL_HISTORY; i++) {
+        mean_y += accel_hist[(accel_hist_head + i) % CAL_HISTORY]; // oldest first
+    }
+    mean_y /= CAL_HISTORY;
+    double num = 0;
+    double den = 0;
+    for (int i = 0; i < CAL_HISTORY; i++) {
+        double dx = i - mean_x;
+        num += dx * (accel_hist[(accel_hist_head + i) % CAL_HISTORY] - mean_y);
+        den += dx * dx;
+    }
+    double per_sample = num / den;
+    return per_sample * (1000000.0 / RSSI_RPM_UPDATE_INTERVAL_US) * (double)_user_bot_state->rpm_correction;
+}
+
 static void publish(uint32_t rpm, float confidence) {
     _user_bot_state->rssi_rpm = rpm;
     _user_bot_state->rssi_rpm_confidence = confidence;
@@ -280,6 +305,7 @@ static void finish_scan(void) {
         double prev_rpm = last_valid_rpm;
         last_valid_us = t;
         last_valid_rpm = rpm;
+        last_valid_slope = accel_slope_rpm_per_s();
         update_calibration(t, rpm, prev_recent, prev_rpm);
     }
 }
@@ -351,10 +377,23 @@ double get_rpm_rssi(double right_x_percent, double accel_offset_cm) {
         return accel_rpm;
     }
 
+    // The estimate describes the middle of its ~0.5 s window: move it to now with the speed trend
+    // (spinup_two.csv: RSSI read 3-10% low all through the spin-up without this)
+    double window_mid_us = last_valid_us - RSSI_RPM_BUF_SIZE * RSSI_RPM_GRID_INTERVAL_US / 2.0;
+    double rpm = last_valid_rpm + last_valid_slope * ((double)time_us_64() - window_mid_us) / 1000000.0;
+
+    // Only drive on RSSI when the speed is steady enough for that correction to be small, and the
+    // result agrees with the accelerometer; otherwise the accelerometer is the better number
+    double accel_corrected = _user_bot_state->accel_rpm_corrected;
+    if (fabs(last_valid_slope) > RSSI_RPM_MAX_SLOPE_RPM_S ||
+        (accel_corrected > 0 && fabs(rpm - accel_corrected) / accel_corrected > RSSI_RPM_MAX_ACCEL_DIFF)) {
+        return accel_rpm;
+    }
+
     // RSSI RPM is a direct measurement, so the accel correction curve/trim is not applied
     // (and the drive ignores left stick X while on RSSI); heading control via right_x_percent
     // works the same as get_rpm_2accel
     _user_bot_state->rpm_source = RPM_SOURCE_RSSI;
-    _user_bot_state->drive_rpm = (uint32_t)last_valid_rpm;
-    return last_valid_rpm + last_valid_rpm * right_x_percent * HEADING_CONTROL_SENSITIVITY;
+    _user_bot_state->drive_rpm = (uint32_t)rpm;
+    return rpm + rpm * right_x_percent * HEADING_CONTROL_SENSITIVITY;
 }

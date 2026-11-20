@@ -256,7 +256,13 @@ void telemetry_send_telemetry(bot_state_t* bot_state) {
         case TELEMETRY_MOTOR2:
             // multiplying by 10 to get the numbers to show up as 1.0, 2.0, etc. on the transmitter
             // drive mode decimal = traction control state (TC_STATE_*): 1.3 = melty, traction control watching
-            receiver_send_telemetry(donut_get_curr_drive_mode()*10 + traction_state(),donut_is_killswitch_active()*10,bot_state->max_rpm,2);
+            #ifdef TC_SLIP_KNOB
+                // Curr = slip target in % (Curr is sent in 0.1 A, so 300 shows as 30.0 = 30%)
+                receiver_send_telemetry(donut_get_curr_drive_mode()*10 + traction_state(),
+                    (uint16_t)(traction_target_slip() * 1000.0 + 0.5), bot_state->max_rpm, 2);
+            #else
+                receiver_send_telemetry(donut_get_curr_drive_mode()*10 + traction_state(),donut_is_killswitch_active()*10,bot_state->max_rpm,2);
+            #endif
             break;
         case TELEMETRY_MAIN:
             #ifdef DONUT_3LB_CONFIG

@@ -98,6 +98,11 @@ uint8_t donut_get_curr_drive_mode();
                                            // (first_spin.csv replay: 99.6% locked while powered, 0 false locks)
 #define RSSI_RPM_MAX_SUBHARMONIC_RATIO 0.8f // reject a peak whose f/2 or f/3 has >= this fraction of its power: it's a harmonic
 #define RSSI_RPM_MAX_AGE_US 200000         // older than this and get_rpm_rssi falls back to accel
+// get_rpm_rssi shifts the estimate from the middle of its window to now using the accel speed
+// trend, and only drives on it while the speed is changing slower than this and the result is
+// within RSSI_RPM_MAX_ACCEL_DIFF of the corrected accel rpm (spin-ups and coast-downs stay on accel)
+#define RSSI_RPM_MAX_SLOPE_RPM_S 300.0     // ~2.5% lag correction at 3000 rpm; spinup_two ran 220-440 rpm/s
+#define RSSI_RPM_MAX_ACCEL_DIFF 0.05       // RSSI and accel agree within ~1% at steady speed
 
 // while live at zero throttle in melty mode, keep reading the accel rpm at this interval so the
 // RSSI search stays centred on the real speed during a coast-down (it used to freeze at the last
@@ -160,8 +165,18 @@ uint8_t donut_get_curr_drive_mode();
 #define TC_WHEEL_DIAMETER_MM 52.3
 #define TC_MOTOR_RPM_PER_BOT_RPM (2.50 * 52.3 / TC_WHEEL_DIAMETER_MM)
 
-#define TC_TARGET_SLIP 0.15         // wheels allowed this much faster than the bot (0.15 = 15%)
-#define TC_MIN_REF_RPM 300          // slip is measured against at least this rpm (no divide by ~0)
+#define TC_TARGET_SLIP 0.30         // wheels allowed this much faster than the bot (0.30 = 30%). 0.15 was in
+                                    // control but took 6.1 s to 2000 rpm; off (60-100% slip) hit 2000 in ~2.9 s
+                                    // but went out of control (spinup_two/three.csv). Sweeping for the trade-off.
+// The S1 slider (CH12) sets the slip target live instead of TC_TARGET_SLIP: slider bottom =
+// TC_SLIP_KNOB_MIN, top = TC_SLIP_KNOB_MAX. Shown on the switch C middle page in the Curr field
+// (30.0 = 30%, replacing the killswitch flag there) and logged ('S' records, tc_target column).
+// Comment out to use the fixed TC_TARGET_SLIP.
+#define TC_SLIP_KNOB
+#define TC_SLIP_KNOB_MIN 0.10
+#define TC_SLIP_KNOB_MAX 1.00
+
+#define TC_MIN_REF_RPM 300         // slip is measured against at least this rpm (no divide by ~0)
 #define TC_ACCEL_TRUST_RPM 500      // accelerometer rpm below this is ignored (offset error / noise)
 #define TC_LAUNCH_RPM_PER_S 1000    // launch ramp: how fast the bot can spin up on grip, up to TC_ACCEL_TRUST_RPM
                                     // (3000 ran far ahead of the bot: spinup_one.csv launch burnout)

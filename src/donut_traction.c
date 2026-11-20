@@ -52,6 +52,16 @@ uint8_t traction_state(void) {
     return state;
 }
 
+double traction_target_slip(void) {
+    #ifdef TC_SLIP_KNOB
+        return TC_SLIP_KNOB_MIN + receiver_get_percent_for_channel(SLIDER_CH12) * (TC_SLIP_KNOB_MAX - TC_SLIP_KNOB_MIN);
+    #else
+        return TC_TARGET_SLIP;
+    #endif
+}
+
+static int16_t logged_target_pct = -1; // -1 = log the target with the next record
+
 static uint16_t clamp_u16(double x) {
     return (uint16_t)clamp(x, 0, UINT16_MAX);
 }
@@ -78,6 +88,12 @@ static void log_tick(uint64_t now, const motor_telemetry_t* m1, const motor_tele
             logger_log_record('V', (uint8_t)clamp((slip + 1.0) * 100.0 + 0.5, 0, 255),
                 clamp_u16(wheel_motor_rpm / TC_MOTOR_RPM_PER_BOT_RPM));
         }
+        // slip target, only when it changes (and once per spin-up): a = target * 100, b = raw CH12
+        int16_t target_pct = (int16_t)clamp(traction_target_slip() * 100.0 + 0.5, 0, 255);
+        if (target_pct != logged_target_pct) {
+            logged_target_pct = target_pct;
+            logger_log_record('S', (uint8_t)target_pct, receiver_get_channel(SLIDER_CH12));
+        }
     #endif
 }
 
@@ -92,6 +108,7 @@ double traction_limit_throttle(double throttle) {
 
     if (fresh_start) {
         launch_start_us = now;
+        logged_target_pct = -1;
         last_accel_us = 0;
         accel_rpm = 0;
         wheel_motor_rpm = 0;
@@ -171,7 +188,7 @@ double traction_limit_throttle(double throttle) {
 
     double magnitude = fabs(throttle);
     double dt = dt_us / 1000000.0;
-    double error = slip - TC_TARGET_SLIP;
+    double error = slip - traction_target_slip();
     if (error > 0) {
         // start cutting from the throttle actually applied, not from a cap far above it
         ceiling_int = fmin(ceiling_int, magnitude);
@@ -219,5 +236,6 @@ void traction_reset(void) {}
 bool traction_controls_throttle(void) { return false; }
 void traction_update_switch(bot_state_t* bot_state) { (void)bot_state; }
 uint8_t traction_state(void) { return TC_STATE_OFF; }
+double traction_target_slip(void) { return 0; }
 
 #endif

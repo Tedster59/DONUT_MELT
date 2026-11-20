@@ -65,20 +65,21 @@ def download(port, out_path, timeout_s=60):
 FAILSAFE_REASONS = {1: "link LQ/RSSI", 2: "RC timeout"}
 CUT_REASONS = {1: "failsafe", 2: "killswitch"}
 EVENT_KINDS = ("F", "f", "W", "L", "l", "K", "k", "G")
-RECORD_KINDS = "RAPDCMTUV"
+RECORD_KINDS = "RAPDCMTUVS"
 TC_STATES = {0: "off", 1: "uncalibrated", 2: "no ESC telemetry", 3: "watching", 4: "limiting"}
 
 
 def read_traction(path):
     """Traction control records: motor rpm (M), state + fast accel rpm (T), cap + reference (U),
-    slip + wheel rpm in bot-equivalent rpm (V). Logs from before traction control have none."""
+    slip + wheel rpm in bot-equivalent rpm (V), slip target when it changes (S, from the S1 slider).
+    Logs from before traction control have none."""
     tc = {"m_t": [], "m_rpm": [], "t_t": [], "state": [], "accel": [], "u_t": [], "cap": [], "ref": [],
-          "v_t": [], "slip": [], "wheel": []}
+          "v_t": [], "slip": [], "wheel": [], "s_t": [], "target": []}
     pending = {}
     with open(path) as f:
         for row in csv.DictReader(f):
             kind = row["kind"]
-            if kind not in "MTUV":
+            if kind not in "MTUVS":
                 continue
             t = int(row["t_us"]) / 1e6
             if kind == "M":
@@ -96,6 +97,9 @@ def read_traction(path):
                 tc["u_t"].append(t)
                 tc["cap"].append(float(row["tc_ceiling"]))
                 tc["ref"].append(int(row["tc_ref_rpm"]))
+            elif kind == "S":
+                tc["s_t"].append(t)
+                tc["target"].append(float(row["tc_target"]))
             else:
                 tc["v_t"].append(t)
                 tc["slip"].append(float(row["tc_slip"]))
@@ -231,6 +235,11 @@ def plot(path):
         ax.plot(tc["u_t"], tc["cap"], label="throttle cap")
         if tc["v_t"]:
             ax.plot(tc["v_t"], tc["slip"], label="slip")
+        if tc["s_t"]:
+            # the target is only logged when it changes: hold it to the end of the log
+            end = max(tc["t_t"][-1] if tc["t_t"] else 0, tc["s_t"][-1])
+            ax.step(tc["s_t"] + [end], tc["target"] + tc["target"][-1:], where="post", ls="--",
+                    color="black", lw=1, label="slip target")
         ax.step(tc["t_t"], [s / 4 for s in tc["state"]], where="post", lw=0.8,
                 label="TC state / 4 (" + ", ".join(f"{k}={v}" for k, v in TC_STATES.items()) + ")")
         ax.set_ylim(-0.2, 1.6)
