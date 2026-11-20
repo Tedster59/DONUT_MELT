@@ -14,9 +14,9 @@
 //   slip = (wheel_rpm - reference) / max(reference, TC_MIN_REF_RPM)
 //
 // The launch ramp covers the first few hundred RPM, where the accelerometers can't measure the
-// bot's speed well enough (one 400g LSB is ~90 RPM at their 2 cm spacing): the reference rises at
-// TC_LAUNCH_RPM_PER_S, i.e. how fast the bot can spin up on grip, until the accelerometer reading
-// takes over.
+// bot's speed well enough (one 400g LSB is ~90 RPM at their 2 cm spacing, and they read ~330 RPM
+// standing still): the reference rises at TC_LAUNCH_RPM_PER_S, i.e. how fast the bot can spin up
+// on grip, up to TC_ACCEL_TRUST_RPM, and the accelerometer takes over once it reads that much.
 //
 // While traction control can act (enabled, calibrated, ESC telemetry fresh), the left stick goes
 // straight to the throttle and traction control is the only limit. Otherwise the old

@@ -14,4 +14,7 @@ void telemetry_output_link_diagnostics(bot_state_t* bot_state);
 // call every main loop; prints bidirectional DShot eRPM per motor once per second (ESC_TELEMETRY_DIAGNOSTICS)
 void telemetry_output_esc_diagnostics(void);
 
+// ACCEL_REST_DIAGNOSTICS: while not live, one "ACCEL REST ..." line per second (offset vs noise)
+void telemetry_output_accel_rest_diagnostics(bool live);
+
 #endif

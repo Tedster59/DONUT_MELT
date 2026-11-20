@@ -6,8 +6,9 @@
 #include "donut_flash.h"
 
 #define LOG_MAGIC 0x474F4C44u // "DLOG"
-#define LOG_VERSION 3 // v2: failsafe event list after the header (v1 logs still dump, without events)
+#define LOG_VERSION 4 // v2: failsafe event list after the header (v1 logs still dump, without events)
                       // v3: events gain a ch5 field (v2 events still dump, with ch5 blank)
+                      // v4: one 'M' record holds both motors (v3 had one 'M' record per motor)
 
 typedef struct __attribute__((packed)) {
     uint32_t t_us;  // microseconds since the run started
@@ -264,7 +265,19 @@ static void dump_saved_log(void) {
             case 'P': printf("P,%lu,,,,,%u,%.2f,,,,,,," TC_COLS "\n", (unsigned long)r->t_us, r->b, r->a / 100.0f); break;
             case 'D': printf("D,%lu,,,,,,,%u,%u,,,,," TC_COLS "\n", (unsigned long)r->t_us, r->a, r->b); break;
             case 'C': printf("C,%lu,,,,,,,,,%.2f,%u,,," TC_COLS "\n", (unsigned long)r->t_us, r->a / 100.0f, r->b); break;
-            case 'M': printf("M,%lu,,,,,,,,,,,,,,%u,%u,,,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
+            case 'M':
+                if (h->version >= 4) {
+                    // both motors in one record (see donut_traction.c log_tick); printed as the two
+                    // per-motor rows v3 had, so the CSV format doesn't change
+                    uint32_t deficit = (uint32_t)(r->a & 0x7F) * 32;
+                    uint16_t slow = deficit > r->b ? 0 : (uint16_t)(r->b - deficit);
+                    bool m2_faster = (r->a & 0x80) != 0;
+                    printf("M,%lu,,,,,,,,,,,,,,1,%u,,,,,,\n", (unsigned long)r->t_us, m2_faster ? slow : r->b);
+                    printf("M,%lu,,,,,,,,,,,,,,2,%u,,,,,,\n", (unsigned long)r->t_us, m2_faster ? r->b : slow);
+                } else {
+                    printf("M,%lu,,,,,,,,,,,,,,%u,%u,,,,,,\n", (unsigned long)r->t_us, r->a, r->b);
+                }
+                break;
             case 'T': printf("T,%lu,,,,,,,,,,,,,,,,%u,%u,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
             case 'U': printf("U,%lu,,,,,,,,,,,,,,,,,,%.2f,%u,,\n", (unsigned long)r->t_us, r->a / 100.0f, r->b); break;
             case 'V': printf("V,%lu,,,,,,,,,,,,,,,,,,,,%.2f,%u\n", (unsigned long)r->t_us, r->a / 100.0f - 1.0f, r->b); break;
@@ -320,9 +333,16 @@ static void handle_serial_command(void) {
             printf("LOGGER saved run erased\n");
             break;
         case 's': print_status(); break;
+        #ifdef DONUT_3LB_CONFIG
+            // not a logger command, but this is where the bot reads USB serial (only while not live)
+            case 'z': accel_measure_offsets(); break;
+        #endif
         case 'h':
         case '?':
             printf("LOGGER commands: d = dump saved run as CSV, x = erase it, s = status\n");
+            #ifdef DONUT_3LB_CONFIG
+                printf("ACCEL command: z = measure accelerometer offsets (board flat and still, 5 s)\n");
+            #endif
             break;
         default: break;
     }

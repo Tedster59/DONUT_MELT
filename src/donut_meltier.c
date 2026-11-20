@@ -242,6 +242,10 @@ void always() {
             telemetry_output_esc_diagnostics();
         #endif
 
+        #if defined(ACCEL_REST_DIAGNOSTICS) && defined(DONUT_3LB_CONFIG)
+            telemetry_output_accel_rest_diagnostics(donut_is_live());
+        #endif
+
         #ifdef USE_FLASH_LOGGER
             logger_update(&bot_state, donut_is_live(), donut_is_killswitch_active());
         #endif

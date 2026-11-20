@@ -30,7 +30,8 @@ int main() {
         printf("accel_1 Y axis: %lf \n", accel_1_data[1]);
         printf("accel_1 Z axis: %lf \n\n", accel_1_data[2]);
 
-        double* accel_2_data = accelerometer_get_all_axis(&accel_1);
+        // was &accel_1, so every "accel_2" offset measured with this test was accel 1 again
+        double* accel_2_data = accelerometer_get_all_axis(&accel_2);
         printf("accel_2 X axis: %lf \n", accel_2_data[0]);
         printf("accel_2 Y axis: %lf \n", accel_2_data[1]);
         printf("accel_2 Z axis: %lf \n\n", accel_2_data[2]);

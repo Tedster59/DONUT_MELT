@@ -108,6 +108,65 @@ float vec_magnitude(Vector2D v) {
     return sqrtf((v.x * v.x) + (v.y * v.y));
 }
 
+// Accelerometer 1 minus accelerometer 2 in the X/Y plane (g), with the ACCEL_x_OFFSETs applied:
+// the vector the rpm is computed from (rpm = sqrt(|delta| / 2 * 89445)). Reads both over I2C.
+Vector2D accel_read_delta_g(void) {
+    #ifdef DONUT_3LB_CONFIG
+        double* Accel1RawData = accelerometer_get_all_axis(accel_1);
+        double* Accel2RawData = accelerometer_get_all_axis(accel_2);
+        Vector2D a1 = { Accel1RawData[0] - ACCEL_1_X_OFFSET, Accel1RawData[1] - ACCEL_1_Y_OFFSET };
+        Vector2D a2 = { Accel2RawData[0] - ACCEL_2_X_OFFSET, Accel2RawData[1] - ACCEL_2_Y_OFFSET };
+        return vec_subtract(a1, a2);
+    #else
+        return (Vector2D){ 0, 0 };
+    #endif
+}
+
+#define OFFSET_MEASURE_US 5000000
+#define OFFSET_MEASURE_INTERVAL_US 2000 // 500 Hz; the sensors update at 1 kHz
+
+// Averages both sensors' raw X/Y/Z for 5 s and prints the offset #defines for donut_3lb_config.h.
+// Blocks the main loop (watchdog fed): only call while the bot isn't live. The board must be flat
+// and still; if it's tilted, gravity adds to both sensors equally, which doesn't change the rpm
+// (only their difference counts) but makes the individual numbers less meaningful.
+void accel_measure_offsets(void) {
+    #ifdef DONUT_3LB_CONFIG
+        double sum[2][3] = { { 0 } };
+        uint32_t n = 0;
+        printf("ACCEL measuring offsets for %d s: keep the board flat and still...\n", OFFSET_MEASURE_US / 1000000);
+        uint64_t start = time_us_64();
+        uint64_t next = start;
+        while (time_us_64() - start < OFFSET_MEASURE_US) {
+            watchdog_update();
+            if (time_us_64() < next) {
+                continue;
+            }
+            next += OFFSET_MEASURE_INTERVAL_US;
+            double* a1 = accelerometer_get_all_axis(accel_1);
+            for (int i = 0; i < 3; i++) sum[0][i] += a1[i];
+            double* a2 = accelerometer_get_all_axis(accel_2);
+            for (int i = 0; i < 3; i++) sum[1][i] += a2[i];
+            n++;
+        }
+        double m[2][3];
+        for (int s = 0; s < 2; s++) {
+            for (int i = 0; i < 3; i++) m[s][i] = sum[s][i] / n;
+        }
+        // what the rest reading was with the configured offsets, and what it becomes with these
+        double old_dx = (m[0][0] - ACCEL_1_X_OFFSET) - (m[1][0] - ACCEL_2_X_OFFSET);
+        double old_dy = (m[0][1] - ACCEL_1_Y_OFFSET) - (m[1][1] - ACCEL_2_Y_OFFSET);
+        double old_off = sqrt(old_dx * old_dx + old_dy * old_dy);
+        printf("ACCEL offsets from %lu samples (z: accel 1 %+.2f g, accel 2 %+.2f g; ~1 g = flat).\n",
+            (unsigned long)n, m[0][2], m[1][2]);
+        printf("ACCEL the configured offsets leave %.2f g = %.0f rpm at rest. For BOARD_ID %d paste:\n",
+            old_off, sqrt(old_off / 2 * 89445), BOARD_ID);
+        printf("    #define ACCEL_1_X_OFFSET %.2f\n", m[0][0]);
+        printf("    #define ACCEL_1_Y_OFFSET %.2f\n", m[0][1]);
+        printf("    #define ACCEL_2_X_OFFSET %.2f\n", m[1][0]);
+        printf("    #define ACCEL_2_Y_OFFSET %.2f\n", m[1][1]);
+    #endif
+}
+
 // Raw (unsmoothed, uncorrected) RPM from the two accelerometers. Reads both over I2C (~0.6 ms),
 // and doesn't touch the drive's smoothing window or bot_state, so traction control can call it at
 // its own rate without changing the heading timing.

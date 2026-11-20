@@ -35,7 +35,8 @@ void logger_update(bot_state_t* bot_state, bool live, bool killed);
 void logger_log_event(char kind, uint8_t reasons, uint32_t value_us, uint16_t ch5);
 
 // a record from outside the logger, timestamped now; dropped unless the bot is live (recording).
-// Kinds used by traction control: 'M' motor rpm (a = motor 1/2), 'T' TC state + fast accel rpm,
+// Kinds used by traction control: 'M' both motors' rpm (b = faster motor, a = bit 7 motor 2 is the
+// faster one + bits 0-6 the other's deficit in 32 rpm steps), 'T' TC state + fast accel rpm,
 // 'U' throttle cap * 100 + reference rpm, 'V' (slip + 1) * 100 + wheel rpm in bot-equivalent rpm
 void logger_log_record(char kind, uint8_t a, uint16_t b);
 

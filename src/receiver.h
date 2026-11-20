@@ -13,7 +13,7 @@ typedef enum {
     SWITCH_B,
     SWITCH_C,
     SWITCH_F,
-    MOMENTARY_CH9,        // CH9: TX12 momentary button (unused)
+    MOMENTARY_CH9,        // CH9: TX12 momentary button, each press toggles traction control (3lb)
     RPM_CURVE_SAVE_SWITCH // CH10: TX12 momentary button, saves an RPM correction curve point (hold while killed to clear)
 } Channel;
 

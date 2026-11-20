@@ -151,21 +151,30 @@ uint8_t donut_get_curr_drive_mode();
 // Motor rpm (eRPM / MOTOR_POLE_PAIRS) per bot rpm when the wheels aren't slipping. 0 = not
 // calibrated: everything is measured and logged, but the throttle is never limited. Calibrate
 // from a log of a few gentle steady spins: dump_log.py --plot prints a suggested value.
-#define TC_MOTOR_RPM_PER_BOT_RPM 0.0
+// 2.50 from third_spin.csv: the ratio at throttle cut, where the wheels push least (2.61 steady at
+// 61% throttle = ~4.5% slip). Too high a value hides real slip, so err low.
+// It scales with 1 / wheel diameter: re-measure the wheels as the urethane wears and update
+// TC_WHEEL_DIAMETER_MM (1 mm less diameter = 1.9% higher ratio). Geometry alone (60.7 mm contact
+// radius / 26.15 mm wheel radius) gives 2.32; the measured 2.50 means the wheels effectively roll
+// ~5 mm further out than their centre line, or on a smaller radius than the calipers measure.
+#define TC_WHEEL_DIAMETER_MM 52.3
+#define TC_MOTOR_RPM_PER_BOT_RPM (2.50 * 52.3 / TC_WHEEL_DIAMETER_MM)
 
 #define TC_TARGET_SLIP 0.15         // wheels allowed this much faster than the bot (0.15 = 15%)
 #define TC_MIN_REF_RPM 300          // slip is measured against at least this rpm (no divide by ~0)
 #define TC_ACCEL_TRUST_RPM 500      // accelerometer rpm below this is ignored (offset error / noise)
-#define TC_LAUNCH_RPM_PER_S 3000    // launch ramp: how fast the bot can spin up on grip
-#define TC_LAUNCH_RAMP_MAX_RPM 800  // the launch ramp stops here; the accelerometer takes over
-#define TC_FILTER_TAU_US 5000       // low pass on both wheel and accel rpm (matched delays)
+#define TC_LAUNCH_RPM_PER_S 1000    // launch ramp: how fast the bot can spin up on grip, up to TC_ACCEL_TRUST_RPM
+                                    // (3000 ran far ahead of the bot: spinup_one.csv launch burnout)
+#define TC_FILTER_TAU_US 15000      // low pass on both wheel and accel rpm (matched delays); 5 ms let
+                                    // 10 ms wheel chatter through, which the cap can't follow anyway
 #define TC_ACCEL_INTERVAL_US 2000   // accelerometer read rate for traction control (each read ~0.6ms)
 #define TC_MAX_ERPM_AGE_US 5000     // ESC eRPM older than this = no telemetry, stop limiting
 #define TC_CUT_GAIN 20.0            // cap drop per second per unit of slip over target
 #define TC_KP 0.5                   // extra immediate cap drop per unit of slip over target
 #define TC_RECOVER_PER_S 1.5        // cap rise per second while under target slip
-#define TC_MIN_CEILING 0.10         // never cap the throttle below this
-#define TC_LOG_INTERVAL_US 5000     // M/T/U/V log records at 200 Hz while in melty with throttle
+#define TC_MIN_CEILING 0.05         // never cap the throttle below this (0.10 still slipped ~20% at 500 rpm)
+#define TC_LOG_INTERVAL_US 10000    // M/T/U/V log records at 100 Hz while in melty with throttle
+                                    // (200 Hz cut the log buffer to ~21 s)
 
 //----------END TRACTION CONTROL SETTINGS----------
 
@@ -178,7 +187,8 @@ uint8_t donut_get_curr_drive_mode();
 // Saving only happens on the killswitch, so kill the bot and wait for the save before cutting power.
 #define USE_FLASH_LOGGER
 
-#define LOGGER_BUF_BYTES (384 * 1024)      // RAM ring buffer, 8 bytes/record: ~37 s at 1kHz link stats + 100Hz A/D/C
+#define LOGGER_BUF_BYTES (384 * 1024)      // RAM ring buffer, 8 bytes/record: ~37 s at 1kHz link stats + 100Hz A/D/C,
+                                           // ~28 s while traction control logs (melty with throttle)
 #define LOGGER_FLASH_OFFSET (1024 * 1024)  // log region starts 1MB into flash (firmware is ~120KB);
                                            // fits any flash chip >= 2MB
 #define LOGGER_SAVE_DELAY_MS 2000          // killswitch must be on this long before saving
@@ -232,6 +242,11 @@ uint8_t donut_get_curr_drive_mode();
 
 // one "ESC ..." line per second: bidirectional DShot eRPM/RPM and reply error counts per motor
 // #define ESC_TELEMETRY_DIAGNOSTICS
+
+// one "ACCEL REST ..." line per second while the bot is not live (killed/failsafed): whether the
+// ~330 rpm the accelerometers read at standstill is a leftover sensor offset or noise. Bench only:
+// it reads the accelerometers at 500 Hz while killed, which the bot otherwise doesn't do.
+#define ACCEL_REST_DIAGNOSTICS
 // #define FULL_CONTROLLER_DIAGNOSTICS
 // #define OTHER_DIAGNOSTICS
 

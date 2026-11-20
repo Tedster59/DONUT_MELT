@@ -15,6 +15,8 @@ static double wheel_motor_rpm = 0;    // filtered max motor rpm
 static double ceiling_int = 1.0;      // integrated throttle cap
 static double ceiling = 1.0;          // cap actually applied (integrator minus proportional term)
 static double reference_rpm = 0;
+static double launch_base_rpm = 0;   // bot speed the launch ramp starts from (already rolling)
+static bool accel_trusted = false;    // latched once the accelerometer passes TC_ACCEL_TRUST_RPM
 static double slip = 0;
 static bool slip_valid = false;
 
@@ -60,8 +62,15 @@ static void log_tick(uint64_t now, const motor_telemetry_t* m1, const motor_tele
             return;
         }
         last_log_us = now;
-        logger_log_record('M', 1, clamp_u16(m1->rpm));
-        logger_log_record('M', 2, clamp_u16(m2->rpm));
+        // both motors in one record: b = the faster motor's rpm, a = bit 7 set if that's motor 2,
+        // bits 0-6 = how much slower the other motor is, in 32 rpm steps (saturates at 4064)
+        uint16_t rpm1 = clamp_u16(m1->rpm);
+        uint16_t rpm2 = clamp_u16(m2->rpm);
+        bool m2_faster = rpm2 > rpm1;
+        uint16_t fast = m2_faster ? rpm2 : rpm1;
+        uint16_t slow = m2_faster ? rpm1 : rpm2;
+        uint32_t steps = ((uint32_t)(fast - slow) + 16) / 32;
+        logger_log_record('M', (uint8_t)((m2_faster ? 0x80 : 0) | (steps > 127 ? 127 : steps)), fast);
         logger_log_record('T', state, clamp_u16(accel_rpm));
         logger_log_record('U', (uint8_t)clamp(ceiling * 100.0 + 0.5, 0, 255), clamp_u16(reference_rpm));
         if (slip_valid) {
@@ -101,6 +110,14 @@ double traction_limit_throttle(double throttle) {
         double motor_rpm = fmax(m1.rpm, m2.rpm); // the faster wheel is the one slipping
         wheel_motor_rpm = fresh_start ? motor_rpm : low_pass(wheel_motor_rpm, motor_rpm, dt_us);
     }
+    if (fresh_start) {
+        // throttle reapplied while the bot is still coasting: the wheels were rolling unpowered,
+        // so their speed is the bot's speed, and the launch ramp starts from there instead of 0
+        // (from 0 it would read as huge slip and cut the throttle until the ramp caught up)
+        launch_base_rpm = (telemetry_ok && TC_MOTOR_RPM_PER_BOT_RPM > 0) ?
+            fmin(wheel_motor_rpm / TC_MOTOR_RPM_PER_BOT_RPM, TC_ACCEL_TRUST_RPM) : 0;
+        accel_trusted = false;
+    }
 
     if (last_accel_us == 0 || now - last_accel_us >= TC_ACCEL_INTERVAL_US) {
         uint64_t accel_dt = last_accel_us == 0 ? 0 : now - last_accel_us;
@@ -112,11 +129,18 @@ double traction_limit_throttle(double throttle) {
         }
     }
 
-    // below TC_ACCEL_TRUST_RPM the accelerometer reading is mostly offset error and noise, which
-    // would let the wheels slip at launch, so only the launch ramp counts there. Above it the
-    // accelerometer alone is used: a ramp running ahead of the real bot would allow slip.
-    double launch_rpm = fmin(TC_LAUNCH_RPM_PER_S * ((now - launch_start_us) / 1000000.0), TC_LAUNCH_RAMP_MAX_RPM);
-    reference_rpm = (accel_rpm >= TC_ACCEL_TRUST_RPM) ? accel_rpm : launch_rpm;
+    // below TC_ACCEL_TRUST_RPM the accelerometer reading is mostly offset error and noise (it reads
+    // ~330 rpm standing still), which would let the wheels slip at launch, so only the launch ramp
+    // counts there. Once the accelerometer passes the threshold it takes over for the rest of the
+    // spin-up: switching back and forth while it hovers around the threshold made the reference
+    // jump every few ms (spinup_one.csv). The ramp stops at the threshold so the handover doesn't
+    // jump either: a ramp running ahead of the real bot is exactly what lets the wheels burn out.
+    if (accel_rpm >= TC_ACCEL_TRUST_RPM) {
+        accel_trusted = true;
+    }
+    double launch_rpm = fmin(launch_base_rpm + TC_LAUNCH_RPM_PER_S * ((now - launch_start_us) / 1000000.0),
+        TC_ACCEL_TRUST_RPM);
+    reference_rpm = accel_trusted ? accel_rpm : launch_rpm;
 
     // ---- state ----
 

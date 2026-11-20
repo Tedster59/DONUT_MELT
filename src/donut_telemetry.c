@@ -105,7 +105,12 @@ void telemetry_output_link_diagnostics(bot_state_t* bot_state) {
                     info.last.rssi, info.rssi_min, info.rssi_max, info.last.link_quality, info.last.snr);
             }
             printf(" | loop %.0f Hz max %lu us", loops / secs, (unsigned long)max_loop_us);
-            printf(" | uart ovf %lu", (unsigned long)receiver_uart_rx_overflows());
+            // per window: the total also counts bytes dropped while the loop was blocked on purpose
+            // (log dump/save, killed), which made it look like an ongoing problem
+            static uint32_t last_ovf = 0;
+            uint32_t ovf = receiver_uart_rx_overflows();
+            printf(" | uart ovf %lu (total %lu)", (unsigned long)(ovf - last_ovf), (unsigned long)ovf);
+            last_ovf = ovf;
             static const char* const state_names[] = { "unlocked", "shadow", "DRIVING" };
             printf(" | rpm accel %lu (corr %lu) rssi %lu conf %.2f %s",
                 (unsigned long)bot_state->rpm, (unsigned long)bot_state->accel_rpm_corrected,
@@ -161,6 +166,53 @@ void telemetry_output_esc_diagnostics(void) {
         *l = t;
     }
     printf("\n");
+}
+
+#define ACCEL_REST_READ_INTERVAL_US 2000 // 500 Hz, the accelerometers update at 1 kHz
+
+// Bot sitting still and not live: what the accelerometer rpm is made of. The rpm comes from
+// |accel 1 - accel 2|, which is never negative, so at rest it reads above 0 for two reasons:
+//   - a leftover offset between the sensors: the mean vector is not ~0, and |mean| ~ mean |dA|
+//   - noise: the mean vector is ~0 but the samples scatter (std), and mean |dA| is still > 0
+// A leftover offset also shifts readings at speed; noise only matters near standstill.
+void telemetry_output_accel_rest_diagnostics(bool live) {
+    static uint64_t window_start_us = 0;
+    static uint64_t last_read_us = 0;
+    static double sum_x, sum_y, sum_xx, sum_yy, sum_mag;
+    static uint32_t n;
+
+    uint64_t now = time_us_64();
+    if (live) {
+        window_start_us = 0; // only measure while still; start a fresh window afterwards
+        return;
+    }
+    if (window_start_us == 0) {
+        window_start_us = now;
+        sum_x = sum_y = sum_xx = sum_yy = sum_mag = 0;
+        n = 0;
+    }
+    if (now - last_read_us >= ACCEL_REST_READ_INTERVAL_US) {
+        last_read_us = now;
+        Vector2D d = accel_read_delta_g();
+        sum_x += d.x;
+        sum_y += d.y;
+        sum_xx += (double)d.x * d.x;
+        sum_yy += (double)d.y * d.y;
+        sum_mag += sqrt((double)d.x * d.x + (double)d.y * d.y);
+        n++;
+    }
+    if (now - window_start_us < LINK_DIAGNOSTICS_INTERVAL_US || n < 2) {
+        return;
+    }
+    double mx = sum_x / n, my = sum_y / n;
+    double sx = sqrt(fmax(sum_xx / n - mx * mx, 0));
+    double sy = sqrt(fmax(sum_yy / n - my * my, 0));
+    double mean_vec = sqrt(mx * mx + my * my);
+    double mean_mag = sum_mag / n;
+    // rpm = sqrt(|dA| / 2 * 89445), as in accel_read_raw_rpm_2accel
+    printf("ACCEL REST | mean dA x %+.2f y %+.2f g -> offset %.2f g = %.0f rpm | std x %.2f y %.2f g | mean |dA| %.2f g = %.0f rpm | n %lu\n",
+        mx, my, mean_vec, sqrt(mean_vec / 2 * 89445), sx, sy, mean_mag, sqrt(mean_mag / 2 * 89445), (unsigned long)n);
+    window_start_us = 0;
 }
 
 // this function and send_telemetry work together to switch between different sets of telemetry to send to transmitter 
