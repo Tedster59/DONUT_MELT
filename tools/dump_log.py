@@ -34,6 +34,8 @@ def download(port, out_path, timeout_s=60):
         ser.reset_input_buffer()
         ser.write(b"d")
         lines = []
+        ncols = None    # from the header line
+        garbled = 0     # lines with bytes lost in the USB transfer
         started = False
         deadline = time.time() + timeout_s
         while time.time() < deadline:
@@ -51,15 +53,30 @@ def download(port, out_path, timeout_s=60):
                 continue  # skip LINK diagnostics or other output before the dump
             if line == "# END":
                 break
-            if line and (line[0] in RECORD_KINDS + "".join(EVENT_KINDS) or line.startswith("kind,")):
+            if line.startswith("kind,"):
+                ncols = len(line.split(","))
                 lines.append(line)
+                deadline = time.time() + 5
+            elif line and line[0] in RECORD_KINDS + "".join(EVENT_KINDS):
+                # USB serial occasionally drops bytes; a damaged line has the wrong column count,
+                # a line break inside it, or no timestamp. Keep only intact lines.
+                fields = line.split(",")
+                if ("\r" in line or (ncols is not None and len(fields) != ncols)
+                        or len(fields) < 2 or not fields[1].isdigit()):
+                    garbled += 1
+                else:
+                    lines.append(line)
                 deadline = time.time() + 5  # keep going while data flows
+            elif line:
+                garbled += 1
         else:
             sys.exit("Timed out waiting for the dump (is the killswitch on?).")
 
     with open(out_path, "w", newline="") as f:
         f.write("\n".join(lines) + "\n")
     print(f"Wrote {len(lines) - 1} records to {out_path}")
+    if garbled:
+        print(f"  skipped {garbled} line(s) damaged in the USB transfer")
 
 
 FAILSAFE_REASONS = {1: "link LQ/RSSI", 2: "RC timeout"}

@@ -321,9 +321,10 @@ static void dump_saved_log(void) {
             case 'J': printf("J,%lu,,,,,,,,,,,,,,,,,,,,,,,,,%.2f,%.1f\n", (unsigned long)r->t_us, r->a / 100.0f, ((int)r->b - 32768) / 10.0f); break;
             default: break;
         }
-        if ((i & 255) == 0) {
-            watchdog_update();
-        }
+        // every line: with USB serial, printf can wait up to ~0.5 s per line when the PC stops
+        // reading for a moment, and 256 lines between feeds tripped the watchdog mid-dump (the
+        // board reset and USB dropped out; the saved run itself survives)
+        watchdog_update();
     }
     // events (see log_event_t): F/f failsafe start/end, W watchdog reboot, L/l live lost/regained,
     // K/k killswitch on/off, G killswitch glitch filtered. fs_reasons = the event's reason bits,
