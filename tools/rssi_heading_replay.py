@@ -21,7 +21,7 @@ def load(path):
     return R,P,C
 
 def run(data, t0, t1, mode='pll', KP=0.3, KI=0.02, KS=0.02, Q_MIN=0.5, MAX_ERR=60/360,
-        max_rpm_diff=None, accel_tau=0.0, hold_us=2000000):
+        max_rpm_diff=None, accel_tau=0.0, hold_us=2000000, reseed_updates=3):
     # max_rpm_diff: restart (lose the lock) when the tracker rpm is this far from the RSSI rpm, like
     # the firmware's RSSI_HEADING_MAX_RPM_DIFF. accel_tau: low-pass (s) on the accel rpm used for speed.
     R,P,C=data
@@ -40,7 +40,7 @@ def run(data, t0, t1, mode='pll', KP=0.3, KI=0.02, KS=0.02, Q_MIN=0.5, MAX_ERR=6
     r0=rssi_at(t0) or accel_at(t0)
     f=r0/60; scale=r0/max(accel_at(t0),1); phase=0.0; tmpl=None; good=bad=0; state=1
     log=[]; now=t0
-    acc_f=accel_at(t0); restarts=0; last_locked=None
+    acc_f=accel_at(t0); restarts=0; last_locked=None; diff_run=0
     while now<t1:
         now+=UPDATE_US
         k=1.0 if accel_tau<=0 else (UPDATE_US/1e6)/(accel_tau+UPDATE_US/1e6)
@@ -48,10 +48,11 @@ def run(data, t0, t1, mode='pll', KP=0.3, KI=0.02, KS=0.02, Q_MIN=0.5, MAX_ERR=6
         if mode=='accel':
             f=scale*acc_f/60                  # speed follows the accel, RSSI pins the angle + scale
         r=rssi_at(now)
-        if max_rpm_diff is not None and r and abs(f*60-r)/r>max_rpm_diff:
-            # firmware: go idle, restart from the RSSI rpm at the next update (template kept)
-            # firmware: re-seed speed/scale from the RSSI rpm, keep the angle, earn the lock back
-            restarts+=1; good=0; state=1
+        diff_run = diff_run+1 if (max_rpm_diff is not None and r and abs(f*60-r)/r>max_rpm_diff) else 0
+        if diff_run>=reseed_updates:
+            # firmware: re-seed speed/scale from the RSSI rpm, keep the angle, earn the lock back,
+            # once the RSSI rpm has disagreed reseed_updates times in a row (RSSI_HEADING_RESEED_UPDATES)
+            diff_run=0; restarts+=1; good=0; state=1
             f=r/60; scale=r/max(acc_f,1)
         m=(rt>now-WINDOW_US)&(rt<=now); n=int(m.sum())
         if n<120: log.append((now,state,0,0)); continue

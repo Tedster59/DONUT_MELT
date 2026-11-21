@@ -145,6 +145,8 @@ void donut_note_loop_blocked(void);
 #define RSSI_HEADING_LOSE_UPDATES 10       // rejected updates in a row to lose the lock
 #define RSSI_HEADING_MAX_RPM_DIFF 0.10     // tracker rpm this far from the RSSI rpm: re-seed the speed from the
                                            // RSSI rpm, keeping the angle (both speeds get noisy on rough ground)
+#define RSSI_HEADING_RESEED_UPDATES 3      // ...only after this many updates in a row disagree (one RSSI rpm
+                                           // can be a 3/4 or 4/3 alias; one update at that speed = 150 deg)
 #define RSSI_HEADING_HOLD_US 2000000       // keep steering on the model this long after losing the lock
                                            // (heading_shadow2.csv: rough concrete, 28% locked, rejects come in bursts)
 #define RSSI_HEADING_LATENCY_US 0          // RSSI measurement to arrival delay, subtracted from timestamps

@@ -37,6 +37,7 @@ static bool offset_valid[2] = { false, false };
 static uint16_t good_run = 0;    // consecutive accepted updates
 static uint64_t last_locked_us = 0; // last update that ended LOCKED (0 = not since the last restart)
 static uint16_t bad_run = 0;     // consecutive rejected updates
+static uint8_t rpm_diff_run = 0; // consecutive updates with the RSSI rpm > RSSI_HEADING_MAX_RPM_DIFF away
 static uint64_t last_update_us = 0;
 static uint64_t last_rssi_ok_us = 0;
 
@@ -97,6 +98,7 @@ static void go_idle(void) {
     state = RSSI_HEADING_IDLE;
     good_run = 0;
     bad_run = 0;
+    rpm_diff_run = 0;
     last_locked_us = 0; // the angle is gone: no holding
 }
 
@@ -117,10 +119,19 @@ static void log_update(float quality, double err_turns) {
 static bool start_window(uint64_t now) {
     double rssi_rpm, slope;
     bool rssi_ok = rssi_rpm_current(&rssi_rpm, &slope) && rssi_rpm >= RSSI_RPM_MIN_SEED_RPM;
+    double accel_rpm = _user_bot_state->accel_rpm_corrected;
+    bool accel_ok = accel_rpm >= RSSI_RPM_MIN_SEED_RPM;
+
     if (rssi_ok) {
         last_rssi_ok_us = now;
-    } else if (now - last_rssi_ok_us > 500000) {
-        go_idle(); // no RSSI rpm for a while: stopped, or the link is gone
+    } else if (now - last_rssi_ok_us > 500000 &&
+               (!accel_ok || !(state == RSSI_HEADING_LOCKED || holding(now)))) {
+        // no RSSI rpm for a while: stopped, or the link is gone. While locked, the RSSI rpm is only a
+        // cross-check: its confidence dips below threshold for ~0.3 s now and then while the phase
+        // match is still fine (heading_drive2.csv, 107 s and 121 s: going idle there threw away a
+        // good lock and re-learned the angle, a small heading jump each time). A dead link still
+        // ends the lock: windows without enough samples count as rejected updates below.
+        go_idle();
     }
 
     int dir = current_dir();
@@ -130,9 +141,6 @@ static bool start_window(uint64_t now) {
         tmpl_valid = false;
         go_idle();
     }
-
-    double accel_rpm = _user_bot_state->accel_rpm_corrected;
-    bool accel_ok = accel_rpm >= RSSI_RPM_MIN_SEED_RPM;
 
     if (state == RSSI_HEADING_IDLE) {
         // start from the RSSI rpm, and only while the speed is steady enough to lock onto
@@ -157,9 +165,15 @@ static bool start_window(uint64_t now) {
     if (accel_ok) {
         freq_hz = accel_scale * accel_rpm / 60.0;
     }
-    if (rssi_ok && fabs(freq_hz * 60.0 - rssi_rpm) / rssi_rpm > RSSI_HEADING_MAX_RPM_DIFF) {
+    bool rpm_disagrees = rssi_ok && fabs(freq_hz * 60.0 - rssi_rpm) / rssi_rpm > RSSI_HEADING_MAX_RPM_DIFF;
+    rpm_diff_run = rpm_disagrees ? rpm_diff_run + 1 : 0;
+    if (rpm_diff_run >= RSSI_HEADING_RESEED_UPDATES) {
         // the speed wandered off (accel noise, or locked onto noise): take the speed and scale from
-        // the RSSI rpm again but keep the angle, and earn the lock back
+        // the RSSI rpm again but keep the angle, and earn the lock back. Only when the RSSI rpm has
+        // disagreed for several updates in a row: a single RSSI estimate can be a harmonic alias
+        // (heading_drive1.csv: one 1504 among ~2005s, exactly 3/4) and one update at the wrong speed
+        // turns the heading 150 deg.
+        rpm_diff_run = 0;
         freq_hz = rssi_rpm / 60.0;
         if (accel_ok) {
             accel_scale = rssi_rpm / accel_rpm;
@@ -180,7 +194,17 @@ static bool start_window(uint64_t now) {
         n++;
     }
     if (n < (RSSI_HEADING_WINDOW_US / 1000) * 6 / 10) {
-        return false; // link gap: not enough samples for a measurement
+        // link gap: not enough samples for a measurement. Counts as a rejected update, so a lock
+        // can't outlive the link (it drops after RSSI_HEADING_LOSE_UPDATES, then the hold runs out)
+        bad_run++;
+        good_run = 0;
+        if (state == RSSI_HEADING_LOCKED && bad_run >= RSSI_HEADING_LOSE_UPDATES) {
+            state = RSSI_HEADING_ACQUIRING;
+        }
+        if (bad_run >= 4 * RSSI_HEADING_LOSE_UPDATES) {
+            go_idle();
+        }
+        return false;
     }
 
     win_end = now32;
