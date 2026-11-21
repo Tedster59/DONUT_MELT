@@ -478,3 +478,7 @@ dkms.conf
 *.dwo
 first_spin.csv
 second_spin.csv
+
+
+# run logs dumped with tools/dump_log.py (kept locally, too big for the repo)
+/*.csv
