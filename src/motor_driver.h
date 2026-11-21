@@ -25,6 +25,10 @@ void motor_outputs_suspend(void);
 void motor_outputs_resume(void);
 bool motor_outputs_suspended(void);
 
+// Bench: make one ESC beep its motor (DShot beacon, no rotation) for duration_ms. Only while both
+// throttles are zero; returns false otherwise. motor = 1 (MOTOR1_PIN) or 2 (MOTOR2_PIN).
+bool motor_beacon(uint8_t motor, uint32_t duration_ms);
+
 // Bidirectional DShot telemetry for one motor (1 or 2). The ESCs answer every DShot frame
 // (5 kHz) with their electrical RPM; rpm = erpm / MOTOR_POLE_PAIRS is the motor shaft speed.
 // The eRPM has no direction (it's the same forward and reverse in 3D mode).

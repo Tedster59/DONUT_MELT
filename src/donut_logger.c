@@ -372,6 +372,12 @@ static void handle_serial_command(void) {
             printf("LOGGER saved run erased\n");
             break;
         case 's': print_status(); break;
+        case '1':
+        case '2':
+            // bench: which motor is which (the ESC beeps its motor, no rotation)
+            printf(motor_beacon(c - '0', 1000) ? "MOTOR %d beeping (DShot beacon, 1 s)\n"
+                                               : "MOTOR %d beacon refused (throttle not zero)\n", c - '0');
+            break;
         #ifdef DONUT_3LB_CONFIG
             // not a logger command, but this is where the bot reads USB serial (only while not live)
             case 'z': accel_measure_offsets(); donut_note_loop_blocked(); break;
@@ -379,6 +385,7 @@ static void handle_serial_command(void) {
         case 'h':
         case '?':
             printf("LOGGER commands: d = dump saved run as CSV, x = erase it, s = status\n");
+            printf("MOTOR commands: 1 / 2 = beep motor 1 / 2 (no rotation, bot not live)\n");
             #ifdef DONUT_3LB_CONFIG
                 printf("ACCEL command: z = measure accelerometer offsets (board flat and still, 5 s)\n");
             #endif

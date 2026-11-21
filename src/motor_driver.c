@@ -60,12 +60,27 @@ static void read_telemetry(BidirDShotX1* motor, volatile motor_telemetry_state_t
     }
 }
 
+// Beacon: DShot command 1 makes the ESC beep its motor without turning it (ESCs only accept
+// commands while the motor is stopped). Used to tell the motors apart on the bench.
+#define DSHOT_CMD_BEACON1 1
+static volatile uint8_t _beacon_motor = 0; // 0 = none
+static volatile uint32_t _beacon_until_us = 0;
+
+static void send_motor(BidirDShotX1* motor, uint8_t number, uint16_t throttle, uint32_t now) {
+    if (_beacon_motor == number && throttle == 0 && (int32_t)(_beacon_until_us - now) > 0) {
+        BidirDShotX1_sendRaw11Bit(motor, DSHOT_CMD_BEACON1);
+    } else {
+        BidirDShotX1_sendThrottle(motor, throttle);
+    }
+}
+
 bool set_throttle_callback(struct repeating_timer *t) {
     read_telemetry(MOTOR1, &_telemetry[0]);
     read_telemetry(MOTOR2, &_telemetry[1]);
 
-    BidirDShotX1_sendThrottle(MOTOR1, MOTOR1_throttle);
-    BidirDShotX1_sendThrottle(MOTOR2, MOTOR2_throttle);
+    uint32_t now = time_us_32();
+    send_motor(MOTOR1, 1, MOTOR1_throttle, now);
+    send_motor(MOTOR2, 2, MOTOR2_throttle, now);
     // led_toggle();
     return true;
 }
@@ -152,6 +167,15 @@ void motor_outputs_resume(void) {
     add_repeating_timer_us(DSHOT_FRAME_INTERVAL_US, set_throttle_callback, NULL, &set_throttle_timer);
     _outputs_running = true;
     _motors_init_us = time_us_64(); // the ESCs saw the signal stop: give them the arm hold again
+}
+
+bool motor_beacon(uint8_t motor, uint32_t duration_ms) {
+    if (motor < 1 || motor > 2 || MOTOR1_throttle != 0 || MOTOR2_throttle != 0 || !_outputs_running) {
+        return false;
+    }
+    _beacon_until_us = time_us_32() + duration_ms * 1000;
+    _beacon_motor = motor;
+    return true;
 }
 
 bool motor_outputs_suspended(void) {
