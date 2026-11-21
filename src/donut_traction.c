@@ -34,14 +34,35 @@ static double clamp(double x, double lo, double hi) {
     return fmin(fmax(x, lo), hi);
 }
 
+static bool telemetry_fresh(motor_telemetry_t* m1, motor_telemetry_t* m2) {
+    bool have1 = motor_get_telemetry(1, m1);
+    bool have2 = motor_get_telemetry(2, m2);
+    return have1 && have2 &&
+        m1->erpm_age_us <= TC_MAX_ERPM_AGE_US && m2->erpm_age_us <= TC_MAX_ERPM_AGE_US;
+}
+
+// state when not limiting: what traction control would do if the throttle were applied now
+static uint8_t idle_state(bool telemetry_ok) {
+    if (!enabled) {
+        return TC_STATE_OFF;
+    } else if (!(TC_MOTOR_RPM_PER_BOT_RPM > 0)) {
+        return TC_STATE_UNCALIBRATED;
+    } else if (!telemetry_ok) {
+        return TC_STATE_NO_TELEMETRY;
+    }
+    return TC_STATE_WATCHING;
+}
+
 void traction_reset(void) {
     last_call_us = 0;
     ceiling_int = 1.0;
     ceiling = 1.0;
     slip_valid = false;
-    if (state == TC_STATE_LIMITING) {
-        state = TC_STATE_WATCHING;
-    }
+    // keep the state current while idle too, so the transmitter shows x.2 on the bench when an ESC
+    // isn't sending eRPM (it used to sit at x.0 from boot until the first spin-up, which looked like
+    // traction control was off; spinup_traction30.csv ran the whole spin-up at x.2, motor 2 silent)
+    motor_telemetry_t m1, m2;
+    state = idle_state(telemetry_fresh(&m1, &m2));
 }
 
 bool traction_controls_throttle(void) {
@@ -119,10 +140,7 @@ double traction_limit_throttle(double throttle) {
     // ---- measurements (also gathered while off/uncalibrated, so the log can calibrate) ----
 
     motor_telemetry_t m1, m2;
-    bool have1 = motor_get_telemetry(1, &m1);
-    bool have2 = motor_get_telemetry(2, &m2);
-    bool telemetry_ok = have1 && have2 &&
-        m1.erpm_age_us <= TC_MAX_ERPM_AGE_US && m2.erpm_age_us <= TC_MAX_ERPM_AGE_US;
+    bool telemetry_ok = telemetry_fresh(&m1, &m2);
     if (telemetry_ok) {
         double motor_rpm = fmax(m1.rpm, m2.rpm); // the faster wheel is the one slipping
         wheel_motor_rpm = fresh_start ? motor_rpm : low_pass(wheel_motor_rpm, motor_rpm, dt_us);
@@ -161,14 +179,9 @@ double traction_limit_throttle(double throttle) {
 
     // ---- state ----
 
-    if (!enabled) {
-        state = TC_STATE_OFF;
-    } else if (!(TC_MOTOR_RPM_PER_BOT_RPM > 0)) {
-        state = TC_STATE_UNCALIBRATED;
-    } else if (!telemetry_ok) {
-        state = TC_STATE_NO_TELEMETRY;
-    } else if (state < TC_STATE_WATCHING) {
-        state = TC_STATE_WATCHING;
+    uint8_t base = idle_state(telemetry_ok);
+    if (base != TC_STATE_WATCHING || state < TC_STATE_WATCHING) {
+        state = base; // LIMITING stays until the controller below decides otherwise
     }
 
     slip_valid = telemetry_ok && TC_MOTOR_RPM_PER_BOT_RPM > 0;
