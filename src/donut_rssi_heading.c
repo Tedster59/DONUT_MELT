@@ -35,6 +35,7 @@ static double offset[2];
 static bool offset_valid[2] = { false, false };
 
 static uint16_t good_run = 0;    // consecutive accepted updates
+static uint64_t last_locked_us = 0; // last update that ended LOCKED (0 = not since the last restart)
 static uint16_t bad_run = 0;     // consecutive rejected updates
 static uint64_t last_update_us = 0;
 static uint64_t last_rssi_ok_us = 0;
@@ -77,8 +78,15 @@ void rssi_heading_add_sample(uint64_t timestamp_us, uint8_t rssi) {
     }
 }
 
+// ACQUIRING within RSSI_HEADING_HOLD_US of the last LOCKED update: the model still has the angle,
+// it's just going through a stretch of rejected updates (bouncing, tilting)
+static bool holding(uint64_t now) {
+    return state == RSSI_HEADING_ACQUIRING && last_locked_us != 0 &&
+           now - last_locked_us < (uint64_t)RSSI_HEADING_HOLD_US;
+}
+
 uint8_t rssi_heading_state(void) {
-    return state;
+    return holding(time_us_64()) ? RSSI_HEADING_HOLDING : state;
 }
 
 double rssi_heading_rpm(void) {
@@ -89,12 +97,13 @@ static void go_idle(void) {
     state = RSSI_HEADING_IDLE;
     good_run = 0;
     bad_run = 0;
+    last_locked_us = 0; // the angle is gone: no holding
 }
 
 static void log_update(float quality, double err_turns) {
     #ifdef USE_FLASH_LOGGER
         double rpm10 = fmin(fmax(rssi_heading_rpm() * 10.0, 0), 65535);
-        logger_log_record('H', state, (uint16_t)rpm10);
+        logger_log_record('H', rssi_heading_state(), (uint16_t)rpm10);
         double err10 = fmin(fmax(err_turns * 3600.0, -32767), 32767); // 0.1 deg
         logger_log_record('J', (uint8_t)fminf(fmaxf(quality * 100.0f + 0.5f, 0), 255), (uint16_t)(int16_t)err10 + 32768u);
     #else
@@ -149,8 +158,14 @@ static bool start_window(uint64_t now) {
         freq_hz = accel_scale * accel_rpm / 60.0;
     }
     if (rssi_ok && fabs(freq_hz * 60.0 - rssi_rpm) / rssi_rpm > RSSI_HEADING_MAX_RPM_DIFF) {
-        go_idle(); // wandered off the real speed (locked onto noise): start again from the RSSI rpm
-        return false;
+        // the speed wandered off (accel noise, or locked onto noise): take the speed and scale from
+        // the RSSI rpm again but keep the angle, and earn the lock back
+        freq_hz = rssi_rpm / 60.0;
+        if (accel_ok) {
+            accel_scale = rssi_rpm / accel_rpm;
+        }
+        state = RSSI_HEADING_ACQUIRING;
+        good_run = 0;
     }
 
     // the samples in (now - window, now], oldest first
@@ -299,6 +314,9 @@ static void finish_window(void) {
     if (bad_run >= 4 * RSSI_HEADING_LOSE_UPDATES) {
         go_idle();
     }
+    if (state == RSSI_HEADING_LOCKED) {
+        last_locked_us = time_us_64();
+    }
     log_update(quality, err);
 }
 
@@ -338,7 +356,8 @@ bool rssi_heading_timing(uint64_t now_us, double right_x_percent, double rpm_tim
         (void)dt; (void)right_x_percent; (void)rpm_timing_fraction; (void)us_per_rotation; (void)elapsed_us;
         return false; // shadow mode: track and log only
     #else
-        if (state != RSSI_HEADING_LOCKED || !(freq_hz > 0)) {
+        // locked, or holding through a short stretch of rejected updates
+        if (!(state == RSSI_HEADING_LOCKED || holding(now_us)) || !(freq_hz > 0)) {
             return false;
         }
         int dir = current_dir();

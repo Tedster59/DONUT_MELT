@@ -20,7 +20,10 @@ def load(path):
     C=[(int(r['t_us']),int(r['accel_rpm_corrected'])) for r in rows if r['kind']=='C']
     return R,P,C
 
-def run(data, t0, t1, mode='pll', KP=0.3, KI=0.02, KS=0.02, Q_MIN=0.5, MAX_ERR=60/360):
+def run(data, t0, t1, mode='pll', KP=0.3, KI=0.02, KS=0.02, Q_MIN=0.5, MAX_ERR=60/360,
+        max_rpm_diff=None, accel_tau=0.0, hold_us=2000000):
+    # max_rpm_diff: restart (lose the lock) when the tracker rpm is this far from the RSSI rpm, like
+    # the firmware's RSSI_HEADING_MAX_RPM_DIFF. accel_tau: low-pass (s) on the accel rpm used for speed.
     R,P,C=data
     rt=np.array([t for t,_ in R]); rv=np.array([v for _,v in R],float)
     ct=[t for t,_ in C]
@@ -37,10 +40,19 @@ def run(data, t0, t1, mode='pll', KP=0.3, KI=0.02, KS=0.02, Q_MIN=0.5, MAX_ERR=6
     r0=rssi_at(t0) or accel_at(t0)
     f=r0/60; scale=r0/max(accel_at(t0),1); phase=0.0; tmpl=None; good=bad=0; state=1
     log=[]; now=t0
+    acc_f=accel_at(t0); restarts=0; last_locked=None
     while now<t1:
         now+=UPDATE_US
+        k=1.0 if accel_tau<=0 else (UPDATE_US/1e6)/(accel_tau+UPDATE_US/1e6)
+        acc_f+=k*(accel_at(now)-acc_f)
         if mode=='accel':
-            f=scale*accel_at(now)/60          # speed follows the accel, RSSI pins the angle + scale
+            f=scale*acc_f/60                  # speed follows the accel, RSSI pins the angle + scale
+        r=rssi_at(now)
+        if max_rpm_diff is not None and r and abs(f*60-r)/r>max_rpm_diff:
+            # firmware: go idle, restart from the RSSI rpm at the next update (template kept)
+            # firmware: re-seed speed/scale from the RSSI rpm, keep the angle, earn the lock back
+            restarts+=1; good=0; state=1
+            f=r/60; scale=r/max(acc_f,1)
         m=(rt>now-WINDOW_US)&(rt<=now); n=int(m.sum())
         if n<120: log.append((now,state,0,0)); continue
         ts=rt[m]; vs=rv[m]-rv[m].mean()
@@ -73,15 +85,18 @@ def run(data, t0, t1, mode='pll', KP=0.3, KI=0.02, KS=0.02, Q_MIN=0.5, MAX_ERR=6
             f+=accel_slope(now)/60*UPDATE_US/1e6
         if state==1 and good>=10: state=2
         elif state==2 and bad>=10: state=1
-        log.append((now,state,q,err*360))
+        if state==2: last_locked=now
+        shown=3 if state==1 and last_locked is not None and now-last_locked<hold_us else state
+        log.append((now,shown,q,err*360))
         phase=(phase+f*UPDATE_US/1e6)%1.0   # advance to the next update
     return log
 
 def summary(log, label):
-    st=[l[1] for l in log]; n=len(log)
+    st=[l[1] for l in log]; n=len(log); restarts=st.count(0)
+    usable=st.count(2)+st.count(3)
     used=np.array([l[3] for l in log if l[1]==2 and l[2]>=0.5 and abs(l[3])<=60])
     rej=sum(1 for l in log if l[2] and (l[2]<0.5 or abs(l[3])>60))
-    print(f"{label:48s} locked {100*st.count(2)/n:3.0f}%  rejected {100*rej/n:3.0f}%  locked err std {used.std():5.1f} deg")
+    print(f"{label:52s} locked {100*st.count(2)/n:3.0f}%  +holding {100*usable/n:3.0f}%  rejected {100*rej/n:3.0f}%  locked err std {used.std() if len(used) else float('nan'):5.1f} deg")
 
 if __name__=='__main__':
     data=load(sys.argv[1]); a,b=float(sys.argv[2])*1e6,float(sys.argv[3])*1e6

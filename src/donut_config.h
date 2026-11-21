@@ -143,8 +143,10 @@ void donut_note_loop_blocked(void);
 #define RSSI_HEADING_MAX_ERR_DEG 60        // phase error above this: skip the update (no real rotation jumps that far)
 #define RSSI_HEADING_LOCK_UPDATES 10       // accepted updates in a row to lock (0.5 s)
 #define RSSI_HEADING_LOSE_UPDATES 10       // rejected updates in a row to lose the lock
-#define RSSI_HEADING_MAX_RPM_DIFF 0.05     // tracker rpm this far from the RSSI rpm: restart from the RSSI rpm
-                                           // (the lag-corrected RSSI rpm scatters ~3% during a spin-up)
+#define RSSI_HEADING_MAX_RPM_DIFF 0.10     // tracker rpm this far from the RSSI rpm: re-seed the speed from the
+                                           // RSSI rpm, keeping the angle (both speeds get noisy on rough ground)
+#define RSSI_HEADING_HOLD_US 2000000       // keep steering on the model this long after losing the lock
+                                           // (heading_shadow2.csv: rough concrete, 28% locked, rejects come in bursts)
 #define RSSI_HEADING_LATENCY_US 0          // RSSI measurement to arrival delay, subtracted from timestamps
                                            // (uncalibrated: 0.5 ms = 9 deg of heading at 3000 rpm)
 #define RSSI_CAL_MAX_SPREAD 0.05f          // max (max-min)/mean of accel rpm, and change between RSSI estimates, over the window

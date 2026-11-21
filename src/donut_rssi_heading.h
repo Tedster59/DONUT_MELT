@@ -31,6 +31,9 @@
 #define RSSI_HEADING_IDLE 0       // no usable RSSI rpm to start from
 #define RSSI_HEADING_ACQUIRING 1  // tracking, not trusted yet
 #define RSSI_HEADING_LOCKED 2     // trusted (drives the heading with RSSI_HEADING_DRIVE)
+#define RSSI_HEADING_HOLDING 3    // lost the lock less than RSSI_HEADING_HOLD_US ago: still drives the
+                                  // heading on the model (accel speed x the RSSI-learned scale) while
+                                  // the RSSI updates are rejected (bouncing, tilting)
 
 void rssi_heading_init(bot_state_t* user_bot_state);
 

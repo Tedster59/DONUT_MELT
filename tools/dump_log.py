@@ -68,7 +68,7 @@ EVENT_KINDS = ("F", "f", "W", "L", "l", "K", "k", "G", "B")
 BOOT_REASONS = {1: "power-on", 2: "BROWNOUT", 4: "SUPPLY GLITCH", 8: "RUN pin", 16: "WATCHDOG TIMEOUT",
                 32: "reboot after flashing (bootrom/picotool)"}
 RECORD_KINDS = "RAPDCMTUVSHJ"
-HD_STATES = {0: "idle", 1: "acquiring", 2: "locked"}
+HD_STATES = {0: "idle", 1: "acquiring", 2: "locked", 3: "holding"}
 TC_STATES = {0: "off", 1: "uncalibrated", 2: "no ESC telemetry", 3: "watching", 4: "limiting"}
 
 
@@ -131,8 +131,9 @@ def summarize_heading(hd):
         return
     n = len(hd["state"])
     locked = [i for i, s in enumerate(hd["state"]) if s == 2]
-    print(f"RSSI heading: {n} updates, locked {100 * len(locked) / n:.0f}%, acquiring "
-          f"{100 * hd['state'].count(1) / n:.0f}%, idle {100 * hd['state'].count(0) / n:.0f}%")
+    print(f"RSSI heading: {n} updates, locked {100 * len(locked) / n:.0f}%, holding "
+          f"{100 * hd['state'].count(3) / n:.0f}%, acquiring {100 * hd['state'].count(1) / n:.0f}%, "
+          f"idle {100 * hd['state'].count(0) / n:.0f}%")
     errs = [hd["err"][i] for i in locked if i < len(hd["err"]) and hd["quality"][i] >= 0.5]
     if len(errs) > 5:
         mean = sum(errs) / len(errs)

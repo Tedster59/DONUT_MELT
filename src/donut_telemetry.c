@@ -234,14 +234,16 @@ void telemetry_send_telemetry(bot_state_t* bot_state) {
             {
                 // RSSI page (SWITCH_F high), shown in the battery sensor fields:
                 //   Volt = RSSI state: 0.0 unlocked (on accel), 1.0 locked in shadow mode, 2.0 locked and driving,
-                //          3.0 RSSI heading tracker locked (RSSI_HEADING; steering only with RSSI_HEADING_DRIVE)
+                //          3.0 RSSI heading tracker locked, 4.0 holding through rejected updates
+                //          (RSSI_HEADING; steering only with RSSI_HEADING_DRIVE)
                 //   Curr = confidence in % (45.0 = 0.45; locks at RSSI_RPM_MIN_CONFIDENCE, i.e. 20.0)
                 //   Capa = RSSI rpm (0 when there is no estimate)
                 //   Fuel = 1 (page number)
                 // With USE_RSSI_RPM on, Volt 0.0 means the drive has fallen back to the accelerometer.
                 // (This replaces the accel_g / LIE_ABOUT_RPM page, which the 3lb never filled in.)
                 float conf = fminf(fmaxf(bot_state->rssi_rpm_confidence, 0.0f), 6.5f);
-                uint8_t shown_state = rssi_heading_state() == RSSI_HEADING_LOCKED ? 3 : rssi_rpm_state();
+                uint8_t hd = rssi_heading_state();
+                uint8_t shown_state = hd == RSSI_HEADING_LOCKED ? 3 : hd == RSSI_HEADING_HOLDING ? 4 : rssi_rpm_state();
                 receiver_send_telemetry(shown_state * 10, (uint16_t)(conf * 1000.0f + 0.5f), bot_state->rssi_rpm, 1);
                 break;
             }
