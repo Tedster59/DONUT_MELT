@@ -132,7 +132,7 @@ void donut_note_loop_blocked(void);
 // and logs it (H/J records) without touching the drive; add RSSI_HEADING_DRIVE to time the heading
 // LED and translation from it while it's locked (the rpm-based timing takes over whenever it isn't).
 #define RSSI_HEADING
-// #define RSSI_HEADING_DRIVE
+#define RSSI_HEADING_DRIVE
 #define RSSI_HEADING_WINDOW_US 200000      // RSSI analysed per update (~4-10 rotations at 1200-3000 rpm)
 #define RSSI_HEADING_UPDATE_US 50000       // update rate (20 Hz)
 #define RSSI_HEADING_HARMONICS 4           // pattern harmonics matched (the 3rd carries most of the precision)
