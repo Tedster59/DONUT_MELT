@@ -367,25 +367,34 @@ bool rssi_rpm_get_calibration(double* raw_rpm, double* factor) {
     return true;
 }
 
+bool rssi_rpm_current(double* rpm, double* slope_rpm_per_s) {
+    if (!rssi_rpm_is_locked()) {
+        return false;
+    }
+    // The estimate describes the middle of its ~0.5 s window: move it to now with the speed trend
+    // (spinup_two.csv: RSSI read 3-10% low all through the spin-up without this)
+    double window_mid_us = last_valid_us - RSSI_RPM_BUF_SIZE * RSSI_RPM_GRID_INTERVAL_US / 2.0;
+    *rpm = last_valid_rpm + last_valid_slope * ((double)time_us_64() - window_mid_us) / 1000000.0;
+    *slope_rpm_per_s = last_valid_slope;
+    return true;
+}
+
 double get_rpm_rssi(double right_x_percent, double accel_offset_cm) {
     // always run the accel path: it keeps bot_state->rpm (our search seed) current
     // and is the fallback whenever the RSSI estimate is stale or unconfident.
     // (get_rpm_2accel sets rpm_source = ACCEL and drive_rpm = the corrected accel rpm)
     double accel_rpm = get_rpm_2accel(right_x_percent, accel_offset_cm);
 
-    if (!rssi_rpm_is_locked()) {
+    double rpm;
+    double slope;
+    if (!rssi_rpm_current(&rpm, &slope)) {
         return accel_rpm;
     }
 
-    // The estimate describes the middle of its ~0.5 s window: move it to now with the speed trend
-    // (spinup_two.csv: RSSI read 3-10% low all through the spin-up without this)
-    double window_mid_us = last_valid_us - RSSI_RPM_BUF_SIZE * RSSI_RPM_GRID_INTERVAL_US / 2.0;
-    double rpm = last_valid_rpm + last_valid_slope * ((double)time_us_64() - window_mid_us) / 1000000.0;
-
-    // Only drive on RSSI when the speed is steady enough for that correction to be small, and the
-    // result agrees with the accelerometer; otherwise the accelerometer is the better number
+    // Only drive on RSSI when the speed is steady enough for the lag correction to be small, and
+    // the result agrees with the accelerometer; otherwise the accelerometer is the better number
     double accel_corrected = _user_bot_state->accel_rpm_corrected;
-    if (fabs(last_valid_slope) > RSSI_RPM_MAX_SLOPE_RPM_S ||
+    if (fabs(slope) > RSSI_RPM_MAX_SLOPE_RPM_S ||
         (accel_corrected > 0 && fabs(rpm - accel_corrected) / accel_corrected > RSSI_RPM_MAX_ACCEL_DIFF)) {
         return accel_rpm;
     }

@@ -26,6 +26,10 @@ bool rssi_rpm_is_locked(void);
 // RSSI_STATE_UNLOCKED / _SHADOW / _DRIVING
 uint8_t rssi_rpm_state(void);
 
+// When locked: the RSSI rpm moved from the middle of its window to now with the accel speed trend,
+// and that trend (rpm/s). False when there is no usable estimate.
+bool rssi_rpm_current(double* rpm, double* slope_rpm_per_s);
+
 // RPM curve calibration from RSSI: true when RSSI is locked AND the speed has been steady over the
 // whole RSSI window (accel spread and consecutive RSSI estimates within RSSI_CAL_MAX_SPREAD).
 // raw_rpm is the raw accelerometer rpm averaged over the same window the RSSI estimate covers,
