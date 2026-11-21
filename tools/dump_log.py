@@ -64,8 +64,11 @@ def download(port, out_path, timeout_s=60):
 
 FAILSAFE_REASONS = {1: "link LQ/RSSI", 2: "RC timeout"}
 CUT_REASONS = {1: "failsafe", 2: "killswitch"}
-EVENT_KINDS = ("F", "f", "W", "L", "l", "K", "k", "G")
-RECORD_KINDS = "RAPDCMTUVS"
+EVENT_KINDS = ("F", "f", "W", "L", "l", "K", "k", "G", "B")
+BOOT_REASONS = {1: "power-on", 2: "BROWNOUT", 4: "SUPPLY GLITCH", 8: "RUN pin", 16: "WATCHDOG TIMEOUT",
+                32: "reboot after flashing (bootrom/picotool)"}
+RECORD_KINDS = "RAPDCMTUVSHJ"
+HD_STATES = {0: "idle", 1: "acquiring", 2: "locked"}
 TC_STATES = {0: "off", 1: "uncalibrated", 2: "no ESC telemetry", 3: "watching", 4: "limiting"}
 
 
@@ -107,6 +110,37 @@ def read_traction(path):
     return tc
 
 
+def read_heading(path):
+    """RSSI heading tracker records: state + tracker rpm (H), match quality + phase error (J)."""
+    hd = {"h_t": [], "state": [], "rpm": [], "j_t": [], "quality": [], "err": []}
+    with open(path) as f:
+        for row in csv.DictReader(f):
+            if row["kind"] == "H":
+                hd["h_t"].append(int(row["t_us"]) / 1e6)
+                hd["state"].append(int(row["hd_state"]))
+                hd["rpm"].append(float(row["hd_rpm"]))
+            elif row["kind"] == "J":
+                hd["j_t"].append(int(row["t_us"]) / 1e6)
+                hd["quality"].append(float(row["hd_quality"]))
+                hd["err"].append(float(row["hd_err_deg"]))
+    return hd
+
+
+def summarize_heading(hd):
+    if not hd["h_t"]:
+        return
+    n = len(hd["state"])
+    locked = [i for i, s in enumerate(hd["state"]) if s == 2]
+    print(f"RSSI heading: {n} updates, locked {100 * len(locked) / n:.0f}%, acquiring "
+          f"{100 * hd['state'].count(1) / n:.0f}%, idle {100 * hd['state'].count(0) / n:.0f}%")
+    errs = [hd["err"][i] for i in locked if i < len(hd["err"]) and hd["quality"][i] >= 0.5]
+    if len(errs) > 5:
+        mean = sum(errs) / len(errs)
+        std = (sum((e - mean) ** 2 for e in errs) / len(errs)) ** 0.5
+        print(f"  while locked: phase error per update std {std:.1f} deg, "
+              f"median match quality {sorted(hd['quality'][i] for i in locked)[len(locked) // 2]:.2f}")
+
+
 def suggest_calibration(tc, min_accel_rpm=800):
     """TC_MOTOR_RPM_PER_BOT_RPM from motor rpm / accel rpm. Slip only ever makes the wheels faster
     than the bot while driving, so a low percentile of the ratio is the no-slip value."""
@@ -133,6 +167,9 @@ def read_events(path):
 def describe_event(kind, row):
     ch5 = row.get("ch5") or "?"  # logs from before v3 have no ch5 column
     bits = int(row["fs_reasons"] or 0)
+    if kind == "B":
+        why = " + ".join(name for bit, name in BOOT_REASONS.items() if bits & bit) or "unknown"
+        return f"board booted before this run: {why}"
     if kind == "W":
         return "run started after a WATCHDOG REBOOT (the previous run's RAM log was lost)"
     if kind == "f":
@@ -194,10 +231,16 @@ def plot(path):
 
     tc = read_traction(path)
     has_tc = bool(tc["m_t"])
+    hd = read_heading(path)
+    summarize_heading(hd)
     fig, axes = plt.subplots(5 if has_tc else 3, 1, sharex=True, figsize=(12, 12 if has_tc else 8))
     axes[0].plot(rssi_t, rssi, lw=0.5)
     axes[0].set_ylabel("RSSI (dBm)")
     axes[1].plot(a_t, accel_rpm, label="accel raw", alpha=0.5)
+    if hd["h_t"]:
+        locked_t = [t for t, st_ in zip(hd["h_t"], hd["state"]) if st_ == 2]
+        locked_rpm = [r for r, st_ in zip(hd["rpm"], hd["state"]) if st_ == 2]
+        axes[1].plot(locked_t, locked_rpm, ".", ms=2, color="black", label="RSSI heading tracker (locked)")
     if c_t:
         axes[1].plot(c_t, corrected_rpm, label="accel corrected")
     axes[1].plot(p_t, rssi_rpm, label="rssi", marker=".", ls="none")

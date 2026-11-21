@@ -11,6 +11,14 @@ uint8_t donut_is_killswitch_active();
 
 uint8_t donut_get_curr_drive_mode();
 
+uint8_t donut_should_spin_clockwise();
+
+// Call after anything that blocked the main loop (flash writes, the USB dump, 'z'): the receiver
+// input that arrived meanwhile isn't trusted, so the bot can't go live until INPUT_LOCKOUT_MS has
+// passed, the receiver has been healthy for INPUT_LOCKOUT_RX_HEALTHY_MS since, and the killswitch
+// has been seen killed after the lockout (a switch flipped to armed during the block is ignored).
+void donut_note_loop_blocked(void);
+
 //----------BOT TYPE----------
 
 //#include "donut_1lb_config.h"
@@ -231,6 +239,18 @@ uint8_t donut_get_curr_drive_mode();
 // motor magnet count / 2, converts the ESC's bidirectional DShot eRPM to motor shaft RPM.
 // CHECK THIS against the motor spec: 7 is the usual 14-magnet (12N14P) outrunner.
 #define MOTOR_POLE_PAIRS 7
+
+// after boot, only zero throttle is sent for this long so the ESCs arm; the bot can't go live
+// until it's over. Never block the main loop for this: a blocked loop doesn't read the killswitch.
+#define MOTOR_ESC_ARM_HOLD_MS 3000
+
+// after a flash write (log save, curve save) or another blocking operation, ignore all input this
+// long, then require a healthy receiver (no failsafe, RC frames under INPUT_LOCKOUT_MAX_FRAME_AGE_US
+// old) for INPUT_LOCKOUT_RX_HEALTHY_MS continuously, and the killswitch seen killed, before the bot
+// can go live again
+#define INPUT_LOCKOUT_MS 2000
+#define INPUT_LOCKOUT_RX_HEALTHY_MS 1000
+#define INPUT_LOCKOUT_MAX_FRAME_AGE_US 20000
 
 #define DRIVE_MODE_MELTY 1
 #define DRIVE_MODE_TANK 2

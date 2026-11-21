@@ -25,6 +25,14 @@ void logger_update(bot_state_t* bot_state, bool live, bool killed);
 #define LOG_GLITCH_READ_KILLED 1 // CH5 read killed while armed
 #define LOG_GLITCH_READ_ARMED 2  // CH5 read armed while killed
 
+// B event reasons: why the board booted before this run (value_us = raw RP2350 POWMAN CHIP_RESET)
+#define LOG_BOOT_POWER_ON 1
+#define LOG_BOOT_BROWNOUT 2
+#define LOG_BOOT_GLITCH 4   // RP2350 supply glitch detector
+#define LOG_BOOT_RUN_PIN 8
+#define LOG_BOOT_WATCHDOG 16 // our watchdog timed out
+#define LOG_BOOT_REBOOT 32   // deliberate reboot through the watchdog: bootrom/picotool, after flashing
+
 // L event reasons: why the bot stopped being live
 #define LOG_CUT_FAILSAFE 1
 #define LOG_CUT_KILLSWITCH 2
@@ -38,7 +46,8 @@ void logger_log_event(char kind, uint8_t reasons, uint32_t value_us, uint16_t ch
 // Kinds used by traction control: 'M' both motors' rpm (b = faster motor, a = bit 7 motor 2 is the
 // faster one + bits 0-6 the other's deficit in 32 rpm steps), 'T' TC state + fast accel rpm,
 // 'U' throttle cap * 100 + reference rpm, 'V' (slip + 1) * 100 + wheel rpm in bot-equivalent rpm,
-// 'S' slip target * 100 + raw CH12 (logged when it changes)
+// 'S' slip target * 100 + raw CH12 (logged when it changes). RSSI heading tracker, every update:
+// 'H' state (RSSI_HEADING_*) + tracker rpm * 10, 'J' match quality * 100 + phase error (0.1 deg + 32768)
 void logger_log_record(char kind, uint8_t a, uint16_t b);
 
 #endif

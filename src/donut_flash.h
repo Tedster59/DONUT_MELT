@@ -7,7 +7,8 @@
 // Shared helpers for writing persistent data to onboard flash (run logger, RPM correction curve).
 // Offsets are from the start of flash. Erasing/programming stalls execute-in-place, so interrupts
 // (including the DShot timer) are off for each call: ~50ms per 4KB sector erase. Only call these
-// while the bot is killed. The watchdog is fed before every sector erase.
+// while the bot is killed. The watchdog is fed before every sector erase. Each call stops the motor
+// outputs and starts the input lockout (see donut_note_loop_blocked).
 
 // false if [offset, offset + size) would overlap the program image
 bool donut_flash_region_safe(uint32_t offset, uint32_t size);

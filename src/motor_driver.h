@@ -14,6 +14,17 @@ void motor_set_throttle_for_all(uint16_t throttle);
 
 void motor_stop_all();
 
+// true for MOTOR_ESC_ARM_HOLD_MS after motor_init_all: only zero throttle is sent meanwhile so the
+// ESCs can arm (donut_is_live() stays false)
+bool motor_esc_arm_hold_active(void);
+
+// Stop sending DShot entirely (the ESCs see a clean signal loss and stop) / start again with zero
+// throttle and a fresh MOTOR_ESC_ARM_HOLD_MS. Flash writes suspend the outputs: with interrupts off
+// for each erase the DShot stream would otherwise break up into garbage the ESCs can misread.
+void motor_outputs_suspend(void);
+void motor_outputs_resume(void);
+bool motor_outputs_suspended(void);
+
 // Bidirectional DShot telemetry for one motor (1 or 2). The ESCs answer every DShot frame
 // (5 kHz) with their electrical RPM; rpm = erpm / MOTOR_POLE_PAIRS is the motor shaft speed.
 // The eRPM has no direction (it's the same forward and reverse in 3D mode).

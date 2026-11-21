@@ -4,6 +4,9 @@
 
 #include <string.h>
 #include "donut_flash.h"
+#if PICO_RP2350
+    #include "hardware/structs/powman.h"
+#endif
 
 #define LOG_MAGIC 0x474F4C44u // "DLOG"
 #define LOG_VERSION 4 // v2: failsafe event list after the header (v1 logs still dump, without events)
@@ -35,7 +38,7 @@ typedef struct __attribute__((packed)) {
     uint32_t t_us;      // microseconds since the run started
     char kind;          // 'F' failsafe started, 'f' failsafe cleared, 'W' this run followed a watchdog reboot,
                         // 'L' stopped being live, 'l' live again, 'K' killswitch on, 'k' killswitch off,
-                        // 'G' CH5 glitch filtered by the killswitch debounce
+                        // 'G' CH5 glitch filtered by the killswitch debounce, 'B' why the board last booted
     uint8_t reasons;    // F: FAILSAFE_REASON_* bits   L: LOG_CUT_* bits   G: LOG_GLITCH_* (which way it read)
     uint8_t lq;         // last link stats link quality %
     uint8_t rssi;       // last link stats RSSI (-dBm)
@@ -92,6 +95,9 @@ static bool prev_live = false;
 static uint64_t not_live_since_us = 0;
 static uint64_t failsafe_start_us = 0;
 static bool boot_after_watchdog = false;
+static bool boot_event_pending = false; // log the 'B' (boot reason) event at the start of the next run
+static uint8_t boot_reasons = 0;        // LOG_BOOT_* bits
+static uint32_t boot_chip_reset = 0;    // raw POWMAN CHIP_RESET (RP2350), 0 elsewhere
 static uint8_t last_lq = 0;
 static uint8_t last_rssi = 0;
 
@@ -171,6 +177,35 @@ void logger_init(void) {
     }
     // the RAM log of the run that was going on is gone; note the reboot in the next run instead
     boot_after_watchdog = watchdog_caused_reboot();
+
+    // why this boot happened, logged as a 'B' event at the start of the first run (a reset with the
+    // ESCs powered used to send full reverse, so knowing what caused one matters)
+    // A watchdog-type reboot (our watchdog timing out, or the bootrom/picotool rebooting after
+    // flashing) doesn't update CHIP_RESET, which then still shows the reset before it (e.g. the
+    // original power-on), so the watchdog's own record is checked first.
+    #if PICO_RP2350
+        boot_chip_reset = powman_hw->chip_reset;
+    #endif
+    if (boot_after_watchdog) {
+        boot_reasons = LOG_BOOT_WATCHDOG;
+    } else if (watchdog_hw->reason) {
+        boot_reasons = LOG_BOOT_REBOOT;
+    } else {
+        #if PICO_RP2350
+            if (boot_chip_reset & POWMAN_CHIP_RESET_HAD_BOR_BITS) boot_reasons |= LOG_BOOT_BROWNOUT;
+            if (boot_chip_reset & POWMAN_CHIP_RESET_HAD_POR_BITS) boot_reasons |= LOG_BOOT_POWER_ON;
+            if (boot_chip_reset & POWMAN_CHIP_RESET_HAD_RUN_LOW_BITS) boot_reasons |= LOG_BOOT_RUN_PIN;
+            if (boot_chip_reset & POWMAN_CHIP_RESET_HAD_GLITCH_DETECT_BITS) boot_reasons |= LOG_BOOT_GLITCH;
+        #endif
+    }
+    boot_event_pending = true;
+    printf("BOOT reset reason:%s%s%s%s%s (chip_reset 0x%08lx)\n",
+        boot_reasons & LOG_BOOT_POWER_ON ? " power-on" : "", boot_reasons & LOG_BOOT_BROWNOUT ? " BROWNOUT" : "",
+        boot_reasons & LOG_BOOT_GLITCH ? " SUPPLY GLITCH" : "", boot_reasons & LOG_BOOT_RUN_PIN ? " RUN pin" : "",
+        boot_reasons & LOG_BOOT_WATCHDOG ? " watchdog" : "", (unsigned long)boot_chip_reset);
+    if (boot_reasons & LOG_BOOT_REBOOT) {
+        printf("BOOT (reboot by the bootrom/picotool, e.g. after flashing)\n");
+    }
 }
 
 void logger_log_rssi(uint64_t timestamp_us, uint8_t rssi, uint8_t link_quality) {
@@ -239,7 +274,7 @@ static void save_to_flash(void) {
 
 // ---------- USB serial commands ----------
 
-#define TC_COLS ",,,,,,,,," // the 9 traction control columns, empty
+#define TC_COLS ",,,,,,,,,,,,," // the 9 traction control + 4 RSSI heading columns, empty
 
 static void dump_saved_log(void) {
     if (!saved_log_valid()) {
@@ -255,8 +290,8 @@ static void dump_saved_log(void) {
     printf("# DONUT_LOG v%lu records=%lu dropped=%lu events=%lu events_dropped=%lu\n",
         (unsigned long)h->version, (unsigned long)h->record_count, (unsigned long)h->dropped,
         (unsigned long)n_events, (unsigned long)(h->version >= 2 ? h->events_dropped : 0));
-    // 24 columns; every row prints all of them (TC_COLS = the 9 traction control columns left empty)
-    printf("kind,t_us,rssi,lq,throttle_pct,accel_rpm,rssi_rpm,confidence,rssi_state,drive_rpm,correction,accel_rpm_corrected,fs_reasons,fs_ms,ch5,motor,motor_rpm,tc_state,tc_accel_rpm,tc_ceiling,tc_ref_rpm,tc_slip,tc_wheel_rpm,tc_target\n");
+    // 28 columns; every row prints all of them (TC_COLS = the traction control and heading columns left empty)
+    printf("kind,t_us,rssi,lq,throttle_pct,accel_rpm,rssi_rpm,confidence,rssi_state,drive_rpm,correction,accel_rpm_corrected,fs_reasons,fs_ms,ch5,motor,motor_rpm,tc_state,tc_accel_rpm,tc_ceiling,tc_ref_rpm,tc_slip,tc_wheel_rpm,tc_target,hd_state,hd_rpm,hd_quality,hd_err_deg\n");
     for (uint32_t i = 0; i < h->record_count; i++) {
         const log_record_t* r = &records[i];
         switch (r->kind) {
@@ -272,16 +307,18 @@ static void dump_saved_log(void) {
                     uint32_t deficit = (uint32_t)(r->a & 0x7F) * 32;
                     uint16_t slow = deficit > r->b ? 0 : (uint16_t)(r->b - deficit);
                     bool m2_faster = (r->a & 0x80) != 0;
-                    printf("M,%lu,,,,,,,,,,,,,,1,%u,,,,,,,\n", (unsigned long)r->t_us, m2_faster ? slow : r->b);
-                    printf("M,%lu,,,,,,,,,,,,,,2,%u,,,,,,,\n", (unsigned long)r->t_us, m2_faster ? r->b : slow);
+                    printf("M,%lu,,,,,,,,,,,,,,1,%u,,,,,,,,,,,\n", (unsigned long)r->t_us, m2_faster ? slow : r->b);
+                    printf("M,%lu,,,,,,,,,,,,,,2,%u,,,,,,,,,,,\n", (unsigned long)r->t_us, m2_faster ? r->b : slow);
                 } else {
-                    printf("M,%lu,,,,,,,,,,,,,,%u,%u,,,,,,,\n", (unsigned long)r->t_us, r->a, r->b);
+                    printf("M,%lu,,,,,,,,,,,,,,%u,%u,,,,,,,,,,,\n", (unsigned long)r->t_us, r->a, r->b);
                 }
                 break;
-            case 'T': printf("T,%lu,,,,,,,,,,,,,,,,%u,%u,,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
-            case 'U': printf("U,%lu,,,,,,,,,,,,,,,,,,%.2f,%u,,,\n", (unsigned long)r->t_us, r->a / 100.0f, r->b); break;
-            case 'V': printf("V,%lu,,,,,,,,,,,,,,,,,,,,%.2f,%u,\n", (unsigned long)r->t_us, r->a / 100.0f - 1.0f, r->b); break;
-            case 'S': printf("S,%lu,,,,,,,,,,,,,,,,,,,,,,%.2f\n", (unsigned long)r->t_us, r->a / 100.0f); break;
+            case 'T': printf("T,%lu,,,,,,,,,,,,,,,,%u,%u,,,,,,,,,\n", (unsigned long)r->t_us, r->a, r->b); break;
+            case 'U': printf("U,%lu,,,,,,,,,,,,,,,,,,%.2f,%u,,,,,,,\n", (unsigned long)r->t_us, r->a / 100.0f, r->b); break;
+            case 'V': printf("V,%lu,,,,,,,,,,,,,,,,,,,,%.2f,%u,,,,,\n", (unsigned long)r->t_us, r->a / 100.0f - 1.0f, r->b); break;
+            case 'S': printf("S,%lu,,,,,,,,,,,,,,,,,,,,,,%.2f,,,,\n", (unsigned long)r->t_us, r->a / 100.0f); break;
+            case 'H': printf("H,%lu,,,,,,,,,,,,,,,,,,,,,,,%u,%.1f,,\n", (unsigned long)r->t_us, r->a, r->b / 10.0f); break;
+            case 'J': printf("J,%lu,,,,,,,,,,,,,,,,,,,,,,,,,%.2f,%.1f\n", (unsigned long)r->t_us, r->a / 100.0f, ((int)r->b - 32768) / 10.0f); break;
             default: break;
         }
         if ((i & 255) == 0) {
@@ -301,7 +338,7 @@ static void dump_saved_log(void) {
             e = (log_event_t){ .t_us = old.t_us, .kind = old.kind, .reasons = old.reasons, .lq = old.lq,
                                .rssi = old.rssi, .value_us = old.value_us, .ch5 = UINT16_MAX };
         }
-        if (e.kind == 0 || strchr("FfWLlKkG", e.kind) == NULL) {
+        if (e.kind == 0 || strchr("FfWLlKkGB", e.kind) == NULL) {
             continue;
         }
         printf("%c,%lu,%u,%u,,,,,,,,,%u,%.1f,", e.kind, (unsigned long)e.t_us, e.rssi, e.lq, e.reasons,
@@ -328,7 +365,7 @@ static void print_status(void) {
 static void handle_serial_command(void) {
     int c = getchar_timeout_us(0);
     switch (c) {
-        case 'd': dump_saved_log(); break;
+        case 'd': dump_saved_log(); donut_note_loop_blocked(); break;
         case 'x':
             donut_flash_erase_sector(LOG_HEADER_OFFSET);
             printf("LOGGER saved run erased\n");
@@ -336,7 +373,7 @@ static void handle_serial_command(void) {
         case 's': print_status(); break;
         #ifdef DONUT_3LB_CONFIG
             // not a logger command, but this is where the bot reads USB serial (only while not live)
-            case 'z': accel_measure_offsets(); break;
+            case 'z': accel_measure_offsets(); donut_note_loop_blocked(); break;
         #endif
         case 'h':
         case '?':
@@ -405,6 +442,10 @@ void logger_update(bot_state_t* bot_state, bool live, bool killed) {
                 if (boot_after_watchdog) {
                     push_event(now, 'W', 0, 0, receiver_get_channel(SWITCH_E));
                     boot_after_watchdog = false;
+                }
+                if (boot_event_pending) {
+                    push_event(now, 'B', boot_reasons, boot_chip_reset, receiver_get_channel(SWITCH_E));
+                    boot_event_pending = false;
                 }
             }
             // otherwise the bot went live again before saving, so keep extending the same run

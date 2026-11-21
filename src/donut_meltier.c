@@ -153,9 +153,57 @@ void init_bot_systems() {
     watchdog_enable(WATCH_DOG_TIMEOUT_MS, 0);
 }
 
+// ---------- input lockout after the main loop was blocked (see donut_note_loop_blocked) ----------
+static uint64_t loop_blocked_us = 0;        // when the last blocking operation ended (0 = none since boot)
+static uint64_t rx_healthy_since_us = 0;    // start of the current stretch of healthy receiver input
+static bool killed_seen_after_lockout = true;
+
+void donut_note_loop_blocked(void) {
+    loop_blocked_us = time_us_64();
+    killed_seen_after_lockout = false;
+}
+
+static bool input_lockout_active(void) {
+    if (loop_blocked_us == 0) {
+        return false;
+    }
+    uint64_t now = time_us_64();
+    if (now - loop_blocked_us < (uint64_t)INPUT_LOCKOUT_MS * 1000) {
+        return true;
+    }
+    // healthy for long enough, counting only from after the block (input buffered during the block
+    // looks fresh when it's finally parsed)
+    uint64_t healthy_from = rx_healthy_since_us > loop_blocked_us ? rx_healthy_since_us : loop_blocked_us;
+    if (rx_healthy_since_us == 0 || now - healthy_from < (uint64_t)INPUT_LOCKOUT_RX_HEALTHY_MS * 1000) {
+        return true;
+    }
+    return !killed_seen_after_lockout;
+}
+
+// runs every loop: receiver health, the killswitch check that ends the lockout, and restarting the
+// motor outputs once a flash write is over
+static void input_lockout_update(void) {
+    uint64_t now = time_us_64();
+    bool healthy = !bot_state.is_failsafed && receiver_rc_frame_age_us() < INPUT_LOCKOUT_MAX_FRAME_AGE_US;
+    if (!healthy) {
+        rx_healthy_since_us = 0;
+    } else if (rx_healthy_since_us == 0) {
+        rx_healthy_since_us = now;
+    }
+    if (loop_blocked_us != 0 && now - loop_blocked_us >= (uint64_t)INPUT_LOCKOUT_MS * 1000 &&
+        donut_is_killswitch_active()) {
+        killed_seen_after_lockout = true;
+    }
+    // flash writes stop the DShot output; the loop running again means the writing is over
+    if (motor_outputs_suspended()) {
+        motor_outputs_resume();
+    }
+}
+
 // true when the drive code is allowed to run the motors
 static bool donut_is_live() {
-    return !(bot_state.is_failsafed || bot_state.require_zero_throttle || donut_is_killswitch_active());
+    return !(bot_state.is_failsafed || bot_state.require_zero_throttle || donut_is_killswitch_active() ||
+             motor_esc_arm_hold_active() || input_lockout_active());
 }
 
 // a just connected or just powered on bot starts here, this is also where failsafed bots go
@@ -182,7 +230,8 @@ void when_failsafe_on() {
         bot_state.require_zero_throttle = 0;
     }
 
-    led_time_blink(SLOW_BLINK);
+    // fast blink = locked out after a flash write until the receiver and killswitch check out
+    led_time_blink(input_lockout_active() || motor_esc_arm_hold_active() ? FAST_BLINK : SLOW_BLINK);
 }
 
 void when_failsafe_off() {
@@ -232,6 +281,7 @@ void always() {
 
         receiver_update();
         killswitch_update();
+        input_lockout_update();
         rssi_rpm_update();
 
         #if defined(RSSI_LINK_DIAGNOSTICS) || defined(RSSI_RAW_DUMP)

@@ -11,6 +11,18 @@ static bot_state_t* _user_bot_state;
 
 static struct repeating_timer set_throttle_timer;
 
+static uint64_t _motors_init_us = 0;
+static bool _outputs_running = false;
+
+// DShot frame period. POSITIVE so the next frame is scheduled from when this one was sent: with a
+// negative period the SDK schedules from the previous target time, so after any stretch with
+// interrupts off (a 45-400 ms flash sector erase) it fired back to back to catch up, ~225 calls
+// after one erase. Each call restarts the PIO mid-frame (sendRaw12Bit), so the ESCs got bursts of
+// chopped, spliced frames; with DShot's 4-bit CRC about 1 in 16 of those passes as a random
+// throttle, which the ESC then holds through the next erase. That is the most likely cause of the
+// motors running at full power for several seconds after a kill (during the log save).
+#define DSHOT_FRAME_INTERVAL_US 200
+
 // Bidirectional DShot telemetry, written only from the timer interrupt below. Every field is
 // 32 bits so each one is read atomically; motor_get_telemetry copies them with interrupts off
 // so the snapshot is consistent too.
@@ -108,27 +120,44 @@ void motor_init_all(int dshot_speed, int motor1_pin, PIO motor1_pio, int motor2_
 
     motor_stop_all();
 
-    // negative time means that the callback is called at a consistent rate regardless of time taken during callback call
-    add_repeating_timer_us(-200, set_throttle_callback, NULL, &set_throttle_timer);
+    add_repeating_timer_us(DSHOT_FRAME_INTERVAL_US, set_throttle_callback, NULL, &set_throttle_timer);
+    _outputs_running = true;
 
-    // After a watchdog-type reboot (our watchdog timing out mid-run, or the bootrom reboot after a
-    // UF2 flash), the ESCs may already be powered and armed. The init sequence below sends 1000,
-    // which the DShot library turns into 1047: FULL REVERSE in 3D mode. An armed ESC would drive
-    // that for a full second, so skip the sequence and hold zero throttle (already being sent by
-    // the timer above). Armed ESCs keep running on zero; ESCs that dropped out re-arm on zero.
-    if (watchdog_caused_reboot()) {
+    // Only zero throttle is ever sent at boot, and boot never blocks. DShot ESCs arm on zero-throttle
+    // frames, which the timer above sends from now on; donut_is_live() keeps the bot down until
+    // MOTOR_ESC_ARM_HOLD_MS after this, so the ESCs have time to arm before any throttle is allowed.
+    //
+    // This used to send 0 - 1000 - 0 with sleep_ms() between (5 s). The DShot library turns 1000
+    // into 1047: FULL REVERSE in 3D mode. It was only skipped after a watchdog reboot, so any other
+    // reset with the ESCs still powered (brownout, supply glitch, RUN pin, a harness connector
+    // bouncing) drove both motors at full reverse for 1 s, with the main loop asleep for 5 s and
+    // the killswitch unread. A reset that the full-reverse current itself causes repeats it.
+    _motors_init_us = time_us_64();
+}
+
+void motor_outputs_suspend(void) {
+    if (!_outputs_running) {
         return;
     }
+    cancel_repeating_timer(&set_throttle_timer);
+    _outputs_running = false;
+    motor_stop_all();
+}
 
-    // Cold power-on only: initing escs by going 0 - 1000 - 0 for some reason, it shouldn't work
-    // like this but it does. Likely harmless here only because the ESCs are still booting and
-    // ignore the 1000 (full reverse) -- see the watchdog check above.
-    motor_set_throttle_for_all(0);
-    sleep_ms(1000);
+void motor_outputs_resume(void) {
+    if (_outputs_running) {
+        return;
+    }
+    motor_stop_all();
+    add_repeating_timer_us(DSHOT_FRAME_INTERVAL_US, set_throttle_callback, NULL, &set_throttle_timer);
+    _outputs_running = true;
+    _motors_init_us = time_us_64(); // the ESCs saw the signal stop: give them the arm hold again
+}
 
-    motor_set_throttle_for_all(1000);
-    sleep_ms(1000);
+bool motor_outputs_suspended(void) {
+    return !_outputs_running;
+}
 
-    motor_set_throttle_for_all(0);
-    sleep_ms(3000);
+bool motor_esc_arm_hold_active(void) {
+    return time_us_64() - _motors_init_us < (uint64_t)MOTOR_ESC_ARM_HOLD_MS * 1000;
 }
