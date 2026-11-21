@@ -8,7 +8,7 @@ within each section. Details live in the commit messages and the comments next t
 | Branch | Head | State |
 |---|---|---|
 | `traction-control` | `08f36d5` | **7 commits not pushed** |
-| `rssi-heading` | traction-control + 7 commits | **7 commits not pushed** (origin has only up to `88d2a6f`) |
+| `rssi-heading` | traction-control + 11 commits | **11 commits not pushed** (origin has only up to `88d2a6f`) |
 | `sinusoidal-translation` | `9f5c88e` | base the traction-control branch came from |
 | `main` | `fe30795` | upstream |
 
@@ -25,6 +25,12 @@ within each section. Details live in the commit messages and the comments next t
 
 `rssi-heading` commits on top of traction-control (newest first):
 - this STATUS.md update
+- `460d545` dump_log plot: tracker state strip (green locked / yellow holding / gray acquiring),
+  x axis trimmed to the data, fixed the crash on the boot event
+- `a83edf1` **`RSSI_HEADING_DRIVE` on**: the tracker steers the heading while locked or holding
+- `3656926` Re-seed speed only after 3 disagreeing RSSI rpm updates (a single 3/4 alias caused a
+  180° jump); keep the lock through RSSI rpm confidence dips; link gaps count as rejected updates
+- `d0d7070` STATUS.md update
 - `4d153bf` USB commands `1` / `2`: DShot beacon, the ESC beeps that motor (bench, throttle zero only)
 - `02866b5` Log dump feeds the watchdog every line; `dump_log.py` skips lines damaged in transfer
 - `3af6949` Heading hold (`RSSI_HEADING_HOLD_US` 2 s, state 3, telemetry Volt 4.0); re-seed speed
@@ -35,7 +41,7 @@ within each section. Details live in the commit messages and the comments next t
 - `343032a` `rssi_rpm_current()`: the lag-corrected RSSI rpm, shared with the tracker
 
 Only uncommitted change: `ESC_TELEMETRY_DIAGNOSTICS` turned on in `donut_config.h` (bench setting).
-Board 1 is flashed with exactly this state (still shadow mode: `RSSI_HEADING_DRIVE` off).
+Board 1 is flashed with exactly this state (RSSI heading steering on).
 
 ## Boards
 
@@ -87,10 +93,17 @@ scale (KS 0.005), template fundamental pinned so the frame can't creep.
 - `heading_shadow2.csv` (rough concrete, bouncing): only 28% locked, rejects in bursts. Added the
   2 s hold and the angle-keeping re-seed (`3af6949`).
 - `heading_hold1.csv` (29 s, lots of translation): **96% locked + 4% holding = 100% usable**,
-  12.3° spread, quality 0.92, 3% rejected. Ready to try `RSSI_HEADING_DRIVE`.
-- Next: enable `RSSI_HEADING_DRIVE`, check forward stays put, then calibrate `RSSI_HEADING_LATENCY_US`
-  (does forward need a different trim at 1500 vs 2500 rpm?)
-  (`python tools/dump_log.py --plot-only <csv>` prints a heading summary).
+  12.3° spread, quality 0.92, 3% rejected.
+- **Driving with it** (`RSSI_HEADING_DRIVE`): `heading_drive1.csv` 92% locked, one 180° jump (single
+  RSSI rpm alias re-seeded the speed, fixed). `heading_drive2.csv` 91% locked, small jumps where the
+  tracker dropped a good lock during RSSI rpm confidence dips (fixed). The user could drive in a fairly
+  straight line; some flutter (per-update error std ~10°, KP 0.5), steadier at ~2200 rpm.
+  **The lock-drop fix (`3656926`) hasn't been on the floor yet.**
+- Next: floor run on the current build; if flutter matters, try `RSSI_HEADING_KP` 0.3; then calibrate
+  `RSSI_HEADING_LATENCY_US` (does forward need a different trim at 1500 vs 2500 rpm?)
+  (`python tools/dump_log.py --plot-only <csv>` prints a heading summary and plots the tracker state).
+- Telemetry: the RSSI page is switch C at the position where Bat% = 1; Volt 3.0 locked / 4.0 holding.
+  The user saw 0.0 on two runs, most likely on the main page (Bat% 3, whose Capa also changes); unconfirmed.
 - The ELRS Lite has one ceramic chip antenna; pattern harmonics are only ~0.3–1.4 dB against ~5 dB
   noise. To try: a ~6 cm conductive strip (foil) 2–3 cm from the chip, parallel to its long side,
   to deepen the pattern; compare harmonic strength, lock %, LQ minimum.
@@ -111,9 +124,10 @@ play), so the side load is floor/bounce impacts. Cleaned, reassembled with Locti
 align the bell (full cure ~24 h; removal needs ~250 °C on the joint, keep heat off the magnets).
 Motor 2 is fine and already has compound.
 
-After cure: runout, the 2 grooved magnets flush, hand-spin/coast vs motor 2, then wheels up with
-`ESC_TELEMETRY_DIAGNOSTICS` (USB "ESC ..." lines): both motors' rpm should match within ~1%; short
-run, feel temperatures.
+**Fixed:** in melty under load motor 1 / motor 2 speed went from 0.95 (two runs before) to 1.01
+(`heading_drive1.csv`), and after a floor run both motors were equally warm. Wheels-up tank tests were
+inconclusive (opposite directions m1 +5–9% at ~2800 rpm; turning at the 4% cap ~800 rpm m1 −3%).
+Compound fully cured ~24 h after assembly (2026-11-20 evening).
 
 ## Accelerometer
 
@@ -125,7 +139,7 @@ after the offset change the heading needs a re-trim (left stick X, save with CH1
 
 ## Open items
 
-- Motor 1 repair checks (above), then `RSSI_HEADING_DRIVE` build; then latency calibration.
+- Floor run on the lock-drop fix; KP if flutter matters; then latency calibration.
 - Antenna reflector strip test.
 - Confirm/tune `TRANSLATION_LEAD_US`, then commit it to traction-control.
 - Sweep the slip target with the slider (time to 1500 rpm vs controllability).
