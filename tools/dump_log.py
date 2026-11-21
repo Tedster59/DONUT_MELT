@@ -319,16 +319,47 @@ def plot(path):
         if start is not None:
             ax.axvspan(start, d_t[-1], color="red", alpha=0.08, lw=0)
 
+    # RSSI heading tracker state as a strip along the top of each panel (each H record holds until the
+    # next one, or one update period at the end / across gaps)
+    hd_colors = {1: "gray", 2: "tab:green", 3: "gold"}
+    if hd["h_t"]:
+        runs = []  # (start, end, state)
+        for i, (t, s) in enumerate(zip(hd["h_t"], hd["state"])):
+            end = hd["h_t"][i + 1] if i + 1 < len(hd["h_t"]) else t + 0.05
+            end = min(end, t + 0.1)  # don't bridge gaps without updates (tracker idle)
+            if runs and runs[-1][2] == s and abs(runs[-1][1] - t) < 1e-9:
+                runs[-1] = (runs[-1][0], end, s)
+            else:
+                runs.append((t, end, s))
+        for ax in axes:
+            for start, end, s in runs:
+                if s in hd_colors:
+                    ax.axvspan(start, end, ymin=0.95, ymax=1.0, color=hd_colors[s], alpha=0.9, lw=0)
+    from matplotlib.patches import Patch
+    axes[0].legend(handles=[
+        Patch(color="red", alpha=0.15, label="RSSI rpm unlocked (shading)"),
+        Patch(color="tab:green", label="heading tracker locked (top strip)"),
+        Patch(color="gold", label="heading tracker holding"),
+        Patch(color="gray", label="heading tracker acquiring (no strip = idle)"),
+    ], loc="lower left", fontsize=8)
+
     # failsafe start (red) / end (green), watchdog reboots (black), cuts (orange) / back live (blue),
-    # killswitch (purple), filtered CH5 glitches (magenta, dotted)
+    # killswitch (purple), filtered CH5 glitches (magenta, dotted), boot reason (gray)
     colors = {"F": "red", "f": "green", "W": "black", "L": "orange", "l": "blue", "K": "purple", "k": "purple",
-              "G": "magenta"}
+              "G": "magenta", "B": "gray"}
     for t, kind, row in read_events(path):
         for ax in axes:
             ax.axvline(t, color=colors[kind], ls=":" if kind == "G" else "--", lw=1)
         if kind in ("F", "L", "G"):
             axes[0].annotate(describe_event(kind, row).split(" (")[0], (t, 1), xycoords=("data", "axes fraction"),
                              rotation=90, va="top", ha="right", fontsize=8, color=colors[kind])
+    # time axis = the logged records only: the RAM log keeps the last ~28 s of a longer run, and the
+    # boot event at t = 0 would otherwise stretch the axis back to boot
+    data_t = [ts[i] for ts in (rssi_t, a_t, p_t, d_t, c_t) if ts for i in (0, -1)]
+    if data_t:
+        pad = 0.01 * (max(data_t) - min(data_t))
+        for ax in axes:
+            ax.set_xlim(min(data_t) - pad, max(data_t) + pad)
     fig.tight_layout()
     plt.show()
 
