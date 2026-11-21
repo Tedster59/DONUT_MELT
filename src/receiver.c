@@ -53,6 +53,7 @@ void on_link_stats(const link_statistics_t link_stats) {
     // receiver_update() in the main loop, so jitter is ~one loop iteration.
     uint64_t now_us = time_us_64();
     rssi_rpm_add_sample(now_us, link_stats.rssi);
+    rssi_heading_add_sample(now_us, link_stats.rssi);
     #ifdef USE_FLASH_LOGGER
         logger_log_rssi(now_us, link_stats.rssi, link_stats.link_quality);
     #endif
@@ -140,6 +141,7 @@ void receiver_init(uart_inst_t* uart_id, int tx_pin, int rx_pin, int link_qualit
 
     _user_bot_state = user_bot_state;
     rssi_rpm_init(user_bot_state);
+    rssi_heading_init(user_bot_state);
 }
 
 void receiver_update() {

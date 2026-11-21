@@ -283,6 +283,7 @@ void always() {
         killswitch_update();
         input_lockout_update();
         rssi_rpm_update();
+        rssi_heading_update();
 
         #if defined(RSSI_LINK_DIAGNOSTICS) || defined(RSSI_RAW_DUMP)
             telemetry_output_link_diagnostics(&bot_state);

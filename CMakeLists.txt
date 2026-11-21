@@ -35,6 +35,7 @@ add_executable(donut_melt
     src/donut_pc.c
     src/donut_accel.c
     src/donut_rssi_rpm.c
+    src/donut_rssi_heading.c
     src/donut_logger.c
     src/donut_flash.c
     src/donut_rpm_curve.c

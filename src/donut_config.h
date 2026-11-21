@@ -128,6 +128,25 @@ void donut_note_loop_blocked(void);
 // RSSI to drive. Commented out = CH10 always saves the hand trim (current setting: tuning by hand
 // until the harmonic-sum RSSI lock has been checked against real spins).
 // #define RPM_CURVE_SAVE_FROM_RSSI
+// Phase-locked heading from the RSSI pattern (donut_rssi_heading.h). RSSI_HEADING runs the tracker
+// and logs it (H/J records) without touching the drive; add RSSI_HEADING_DRIVE to time the heading
+// LED and translation from it while it's locked (the rpm-based timing takes over whenever it isn't).
+#define RSSI_HEADING
+// #define RSSI_HEADING_DRIVE
+#define RSSI_HEADING_WINDOW_US 200000      // RSSI analysed per update (~4-10 rotations at 1200-3000 rpm)
+#define RSSI_HEADING_UPDATE_US 50000       // update rate (20 Hz)
+#define RSSI_HEADING_HARMONICS 4           // pattern harmonics matched (the 3rd carries most of the precision)
+#define RSSI_HEADING_KP 0.5                // fraction of the measured phase error corrected per update
+#define RSSI_HEADING_KS 0.005              // accel-to-true-rpm scale correction per update (error / update period)
+#define RSSI_HEADING_TEMPLATE_TAU_US 2000000 // how slowly the learned pattern adapts
+#define RSSI_HEADING_Q_MIN 0.5f            // match quality below this: skip the update
+#define RSSI_HEADING_MAX_ERR_DEG 60        // phase error above this: skip the update (no real rotation jumps that far)
+#define RSSI_HEADING_LOCK_UPDATES 10       // accepted updates in a row to lock (0.5 s)
+#define RSSI_HEADING_LOSE_UPDATES 10       // rejected updates in a row to lose the lock
+#define RSSI_HEADING_MAX_RPM_DIFF 0.05     // tracker rpm this far from the RSSI rpm: restart from the RSSI rpm
+                                           // (the lag-corrected RSSI rpm scatters ~3% during a spin-up)
+#define RSSI_HEADING_LATENCY_US 0          // RSSI measurement to arrival delay, subtracted from timestamps
+                                           // (uncalibrated: 0.5 ms = 9 deg of heading at 3000 rpm)
 #define RSSI_CAL_MAX_SPREAD 0.05f          // max (max-min)/mean of accel rpm, and change between RSSI estimates, over the window
 
 //----------END RSSI RPM SETTINGS----------

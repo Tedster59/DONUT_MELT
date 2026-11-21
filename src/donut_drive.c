@@ -172,8 +172,34 @@ void handle_spin(bot_state_t* bot_state, double left_y_percent, double right_y_p
         }
     #endif
 
+    uint64_t now = time_us_64();
     double us_per_rotation = rpm_to_upr(rpm);
-    double time_elapsed_this_rotation_us = time_us_64() - bot_state->this_rotations_start_time_us;
+    double time_elapsed_this_rotation_us = now - bot_state->this_rotations_start_time_us;
+
+    // RSSI phase-locked heading (RSSI_HEADING_DRIVE): while locked it supplies the rotation timing.
+    // The rpm-based timing keeps running underneath: its rotation start is kept in step with the
+    // tracker so that losing the lock doesn't jump the heading, and get_rpm is still called once per
+    // rotation (it keeps the accel rpm, the RSSI search seed and the logs current).
+    static double last_heading_fraction = -1;
+    bool heading_locked = false;
+    {
+        double hd_upr, hd_elapsed;
+        double rpm_fraction = fmin(time_elapsed_this_rotation_us / us_per_rotation, 0.999999);
+        if (rssi_heading_timing(now, right_x_percent, rpm_fraction, &hd_upr, &hd_elapsed)) {
+            double fraction = hd_elapsed / hd_upr;
+            bool wrapped = last_heading_fraction >= 0 && fraction < last_heading_fraction - 0.5;
+            last_heading_fraction = fraction;
+            bot_state->this_rotations_start_time_us = now - (uint64_t)(fraction * us_per_rotation);
+            if (wrapped) {
+                rpm = get_rpm(right_x_percent, bot_state->accel_offset_cm);
+            }
+            us_per_rotation = hd_upr;
+            time_elapsed_this_rotation_us = hd_elapsed;
+            heading_locked = true;
+        } else {
+            last_heading_fraction = -1;
+        }
+    }
 
     double led_on_us = fmin(MAX_LED_PERCENT_DURATION, fmax(MIN_LED_PERCENT_DURATION, fabs(left_y_percent))) * us_per_rotation;
 
@@ -201,10 +227,10 @@ void handle_spin(bot_state_t* bot_state, double left_y_percent, double right_y_p
         led_offset_us = us_per_rotation-led_offset_us;
     }
     handle_spin_led(fmod(time_elapsed_this_rotation_us+led_offset_us, us_per_rotation), us_per_rotation, led_on_us,
-        rpm_fallback_active(bot_state));
+        !heading_locked && rpm_fallback_active(bot_state));
 
-    // if we have completed a rotation, get ready for next rotation
-    if (time_elapsed_this_rotation_us >= us_per_rotation) {
+    // if we have completed a rotation, get ready for next rotation (the tracker handles this itself)
+    if (!heading_locked && time_elapsed_this_rotation_us >= us_per_rotation) {
         // Advance the start by exactly one rotation instead of jumping to "now": the loop notices
         // the boundary up to one iteration late, and restarting from "now" adds that overshoot to
         // every rotation, which shows up as a steady heading drift. If we're more than a rotation
