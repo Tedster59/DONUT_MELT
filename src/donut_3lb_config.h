@@ -93,6 +93,13 @@
 // 1 = very different
 // 0 = can't differ at all
 #define MELTY_MAX_TRANSLATION_AGGRESSION 0.8 
+
+// Translation lead (us): apply the translation push this much earlier, because the wheels respond
+// a few ms late and the bot otherwise travels at an angle to the heading LED. 0 = off. The angle it
+// corrects grows with rpm: 1000 us = 12 deg at 2000 rpm, 15 deg at 2500 rpm (the shadow run showed
+// 10-15 deg at 2000 rpm; earlier tests 30-45 deg). If the travel direction gets worse instead of
+// better, the sign is the other way: try a negative value.
+#define TRANSLATION_LEAD_US 1000
 #define MELTY_MAX_THROTTLE 1.0
 
 #define TANK_DRIVE_MAX_THROTTLE 0.125

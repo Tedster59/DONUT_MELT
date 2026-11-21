@@ -1,5 +1,9 @@
 #include "donut_drive.h"
 
+#ifndef TRANSLATION_LEAD_US
+    #define TRANSLATION_LEAD_US 0
+#endif
+
 // takes into account curr_drive_mode whereas donut_is_throttle_zero does not 
 uint8_t drive_is_throttle_zero() {
     if (donut_get_curr_drive_mode() == DRIVE_MODE_MELTY) {
@@ -80,7 +84,12 @@ void handle_all_spin(bot_state_t* bot_state, double left_y_percent, double right
 
     // Sinusoidal control: modulate it based on where you are in the rotation:
 
-    double angle = (2 * M_PI) * ((double)time_elapsed_this_rotation_us / (double)us_per_rotation);
+    // TRANSLATION_LEAD_US: the wheel force follows the throttle a few ms late (ESC response, rotor
+    // inertia), so the push landed later in the rotation than commanded and the bot travelled at an
+    // angle to the heading LED (30-45 deg at ~2000 rpm, gone when the stick is released). Evaluating
+    // the modulation this far ahead makes the push land on the heading. A fixed time is the right
+    // angle at every rpm (lead deg = 360 * rpm / 60 * lead_us / 1e6) and either spin direction.
+    double angle = (2 * M_PI) * (((double)time_elapsed_this_rotation_us + TRANSLATION_LEAD_US) / (double)us_per_rotation);
     double sinVal = cos(angle);
 
     double more_motor_percent_throttle = left_y_percent + distance_to_edge * right_y_percent * sinVal;
