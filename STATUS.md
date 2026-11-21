@@ -8,7 +8,7 @@ within each section. Details live in the commit messages and the comments next t
 | Branch | Head | State |
 |---|---|---|
 | `traction-control` | `08f36d5` | **7 commits not pushed** |
-| `rssi-heading` | traction-control + 3 commits | **6 commits not pushed** (incl. this file) |
+| `rssi-heading` | traction-control + 7 commits | **7 commits not pushed** (origin has only up to `88d2a6f`) |
 | `sinusoidal-translation` | `9f5c88e` | base the traction-control branch came from |
 | `main` | `fe30795` | upstream |
 
@@ -24,13 +24,18 @@ within each section. Details live in the commit messages and the comments next t
 - `97627d6` Skip the accelerometer status poll
 
 `rssi-heading` commits on top of traction-control (newest first):
-- this file
+- this STATUS.md update
+- `4d153bf` USB commands `1` / `2`: DShot beacon, the ESC beeps that motor (bench, throttle zero only)
+- `02866b5` Log dump feeds the watchdog every line; `dump_log.py` skips lines damaged in transfer
+- `3af6949` Heading hold (`RSSI_HEADING_HOLD_US` 2 s, state 3, telemetry Volt 4.0); re-seed speed
+  keeping the angle when > `RSSI_HEADING_MAX_RPM_DIFF` (now 10%) off the RSSI rpm
+- `fca741f` STATUS.md
 - `af1aac4` RSSI phase-locked heading tracker, shadow mode (`RSSI_HEADING` on, `RSSI_HEADING_DRIVE` off),
   RSSI page Volt 3.0 = locked, `tools/rssi_heading_replay.py`
 - `343032a` `rssi_rpm_current()`: the lag-corrected RSSI rpm, shared with the tracker
 
 Only uncommitted change: `ESC_TELEMETRY_DIAGNOSTICS` turned on in `donut_config.h` (bench setting).
-Board 1 is flashed with exactly this state.
+Board 1 is flashed with exactly this state (still shadow mode: `RSSI_HEADING_DRIVE` off).
 
 ## Boards
 
@@ -78,18 +83,37 @@ every 3 s; RSSI rpm alone is ~0.27%). The tracker locks to the phase of the RSSI
 speed from `accel_scale × corrected accel rpm`, RSSI phase corrects the angle (KP 0.5) and slowly the
 scale (KS 0.005), template fundamental pinned so the frame can't creep.
 - Shadow run `heading_shadow.csv` (2000 rpm, translation): firmware then locked 68%, lost lock at
-  translation speed dips. Changed to accel-driven speed; offline replay: 89% locked, 10.8° spread
-  (third_spin 93%/10.5°, spinup_two 58%). **The accel-driven version hasn't run on the bot yet.**
-- Next: another shadow run with translation, dump, check lock through the translations
-  (`python tools/dump_log.py --plot-only <csv>` prints a heading summary). If good, enable
-  `RSSI_HEADING_DRIVE`, check forward stays put, then calibrate `RSSI_HEADING_LATENCY_US`
-  (does forward need a different trim at 1500 vs 2500 rpm?).
+  translation speed dips. Changed to accel-driven speed.
+- `heading_shadow2.csv` (rough concrete, bouncing): only 28% locked, rejects in bursts. Added the
+  2 s hold and the angle-keeping re-seed (`3af6949`).
+- `heading_hold1.csv` (29 s, lots of translation): **96% locked + 4% holding = 100% usable**,
+  12.3° spread, quality 0.92, 3% rejected. Ready to try `RSSI_HEADING_DRIVE`.
+- Next: enable `RSSI_HEADING_DRIVE`, check forward stays put, then calibrate `RSSI_HEADING_LATENCY_US`
+  (does forward need a different trim at 1500 vs 2500 rpm?)
+  (`python tools/dump_log.py --plot-only <csv>` prints a heading summary).
+- The ELRS Lite has one ceramic chip antenna; pattern harmonics are only ~0.3–1.4 dB against ~5 dB
+  noise. To try: a ~6 cm conductive strip (foil) 2–3 cm from the chip, parallel to its long side,
+  to deepen the pattern; compare harmonic strength, lock %, LQ minimum.
 
 ## Translation
 
 Travel was 30–45° off the LED while translating (earlier tests), 10–15° at 2000 rpm in the last run,
 gone on release → wheel response lag. `TRANSLATION_LEAD_US 1000` (≈12° at 2000 rpm) is flashed but
 untested; if travel gets worse, try −1000.
+
+## Motors
+
+Motor 1 (GP2, "left" side; confirmed with the `1` beacon) ran hot with more cogging and ~5% slower
+than motor 2 in the last two logs. Opened up: grooves on 2 magnets, 2 adjacent stator teeth polished
+near the bottom (the next 2 less) — the rotor rubbed the stator. Phases all 0.3 Ω. Bell opening faces
+the bot centre (centrifugal load is axial), outer end on a large bearing, h5 Misumi shafts (slight
+play), so the side load is floor/bounce impacts. Cleaned, reassembled with Loctite 638 and clamped to
+align the bell (full cure ~24 h; removal needs ~250 °C on the joint, keep heat off the magnets).
+Motor 2 is fine and already has compound.
+
+After cure: runout, the 2 grooved magnets flush, hand-spin/coast vs motor 2, then wheels up with
+`ESC_TELEMETRY_DIAGNOSTICS` (USB "ESC ..." lines): both motors' rpm should match within ~1%; short
+run, feel temperatures.
 
 ## Accelerometer
 
@@ -101,10 +125,11 @@ after the offset change the heading needs a re-trim (left stick X, save with CH1
 
 ## Open items
 
-- Shadow run of the accel-driven tracker; then `RSSI_HEADING_DRIVE`; then latency calibration.
+- Motor 1 repair checks (above), then `RSSI_HEADING_DRIVE` build; then latency calibration.
+- Antenna reflector strip test.
 - Confirm/tune `TRANSLATION_LEAD_US`, then commit it to traction-control.
 - Sweep the slip target with the slider (time to 1500 rpm vs controllability).
-- Push `traction-control` (4 commits) when ready.
+- Push `traction-control` and `rssi-heading` when ready.
 - Optional: only allow going live once both ESCs answer telemetry (instead of a fixed 3 s arm hold).
 - Optional: per-sensor noise in `z` to find board 2's noisy accelerometer.
 - Next board rev moves the accelerometers to SPI (pin plan in Claude's memory, own branch).
